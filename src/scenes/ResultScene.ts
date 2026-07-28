@@ -9,6 +9,9 @@ interface ResultData {
   victory: boolean;
   stars: number;
   coinsEarned: number;
+  maxStreak?: number;
+  totalKills?: number;
+  synergies?: string[];
 }
 
 export class ResultScene extends Phaser.Scene {
@@ -24,7 +27,7 @@ export class ResultScene extends Phaser.Scene {
 
   create(): void {
     const cx = GAME_WIDTH / 2;
-    const { victory, stars, coinsEarned, levelId } = this.data_;
+    const { victory, stars, coinsEarned, levelId, maxStreak = 0, totalKills = 0, synergies = [] } = this.data_;
 
     const bg = this.add.graphics();
     if (victory) {
@@ -35,7 +38,7 @@ export class ResultScene extends Phaser.Scene {
     bg.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
     this.add
-      .text(cx, 300, victory ? '胜利！' : '基地失守…', titleStyle(84))
+      .text(cx, 240, victory ? '胜利！' : '基地失守…', titleStyle(84))
       .setOrigin(0.5)
       .setColor(victory ? '#ffd54a' : '#e74c3c');
 
@@ -43,31 +46,45 @@ export class ResultScene extends Phaser.Scene {
     if (victory) {
       for (let i = 0; i < 3; i++) {
         const img = this.add
-          .image(cx - 110 + i * 110, 470, i < stars ? 'star' : 'star_empty')
-          .setScale(0)
-          .setDepth(5);
+          .image(cx - 110 + i * 110, 400, i < stars ? 'star' : 'star_empty')
+          .setScale(0).setDepth(5);
         this.tweens.add({
-          targets: img,
-          scale: 1.4,
-          delay: 200 + i * 180,
-          duration: 300,
-          ease: 'Back.Out',
+          targets: img, scale: 1.4, delay: 200 + i * 180, duration: 300, ease: 'Back.Out',
         });
       }
     }
 
     // 金币结算
-    this.add.image(cx - 70, 620, 'coin').setScale(1.4);
+    this.add.image(cx - 70, 530, 'coin').setScale(1.4);
     this.add
-      .text(cx - 36, 620, `+${coinsEarned}`, textStyle(44, '#ffd54a'))
+      .text(cx - 36, 530, `+${coinsEarned}`, textStyle(44, '#ffd54a'))
       .setOrigin(0, 0.5);
     this.add
-      .text(cx, 690, `当前金币: ${SaveManager.coins}`, textStyle(24, '#8a9aa8'))
+      .text(cx, 590, `当前金币: ${SaveManager.coins}`, textStyle(24, '#8a9aa8'))
       .setOrigin(0.5);
+
+    // 战斗统计
+    let statY = 650;
+    if (totalKills > 0) {
+      this.add.text(cx, statY, `击杀数: ${totalKills}`, textStyle(26, '#b0bec5')).setOrigin(0.5);
+      statY += 40;
+    }
+    if (maxStreak > 0) {
+      this.add.text(cx, statY, `最大连杀: ${maxStreak}`, textStyle(26, maxStreak >= 30 ? '#ff6d00' : '#ffd54a')).setOrigin(0.5);
+      statY += 40;
+    }
+    if (synergies.length > 0) {
+      this.add.text(cx, statY, '组合技:', textStyle(24, '#ffa726')).setOrigin(0.5);
+      statY += 35;
+      synergies.forEach((name) => {
+        this.add.text(cx, statY, `⚡ ${name}`, textStyle(22, '#ffa726')).setOrigin(0.5);
+        statY += 32;
+      });
+    }
 
     // 按钮
     const hasNext = victory && levelId < LEVELS.length;
-    let y = 840;
+    let y = Math.max(statY + 20, 840);
     if (hasNext) {
       createButton(this, cx, y, '下一关', () => this.scene.start('Game', { levelId: levelId + 1 }), {
         width: 360, height: 96, fontSize: 34,
@@ -75,9 +92,7 @@ export class ResultScene extends Phaser.Scene {
       y += 120;
     }
     createButton(
-      this,
-      cx,
-      y,
+      this, cx, y,
       victory ? '再次挑战' : '重新挑战',
       () => this.scene.start('Game', { levelId }),
       { width: 360, height: 96, fontSize: 34, color: hasNext ? 0x455a64 : 0x2e7d32, colorDown: hasNext ? 0x37474f : 0x1b5e20 }

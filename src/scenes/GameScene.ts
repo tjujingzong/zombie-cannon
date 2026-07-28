@@ -1,40 +1,66 @@
 import Phaser from 'phaser';
 import {
-  GAME_HEIGHT,
-  GAME_WIDTH,
-  RUN_UPGRADES,
-  RunUpgradeKey,
-  WALL_Y,
-  ZombieTypeKey,
-  levelClearReward,
-  starsForWallRatio,
+  GAME_HEIGHT, GAME_WIDTH, WALL_Y, ZombieTypeKey,
+  levelClearReward, starsForWallRatio, EXPLOSION_DAMAGE,
+  KILL_STREAK_THRESHOLDS,
 } from '../data/balance';
 import { LEVELS, LevelConfig, getLevel } from '../data/levels';
+import { SkillSystem } from '../systems/SkillSystem';
+import { MetaUpgrades } from '../systems/MetaUpgrades';
+import { SaveManager } from '../systems/SaveManager';
+import { WaveManager } from '../systems/WaveManager';
 import { Bullet } from '../entities/Bullet';
 import { Cannon } from '../entities/Cannon';
 import { Coin } from '../entities/Coin';
 import { Zombie } from '../entities/Zombie';
-import { MetaUpgrades } from '../systems/MetaUpgrades';
-import { SaveManager } from '../systems/SaveManager';
-import { UpgradeSystem } from '../systems/UpgradeSystem';
-import { WaveManager } from '../systems/WaveManager';
 import { FONT, createOverlay, textStyle } from '../ui/helpers';
+import { RARITY_HEX, getSkill, type SynergyDef } from '../data/skills';
+import type { RollChoice } from '../systems/SkillSystem';
 
 export class GameScene extends Phaser.Scene {
   private level!: LevelConfig;
   private waveManager!: WaveManager;
-  private upgrades!: UpgradeSystem;
+  skills!: SkillSystem;
   private cannon!: Cannon;
   private bullets!: Phaser.Physics.Arcade.Group;
   private zombies!: Phaser.Physics.Arcade.Group;
   private coins!: Phaser.GameObjects.Group;
+  private acidBalls!: Phaser.Physics.Arcade.Group;
+  private missiles!: Phaser.Physics.Arcade.Group;
+
+  /** 激光束图形 */
+  private laserGraphics!: Phaser.GameObjects.Graphics;
+
+  /** 导弹计时器 */
+  private missileTimer = 0;
+  /** 护盾计时器 */
+  private shieldTimer = 0;
+  /** 连杀计时器（连杀中断） */
+  private streakTimer = 0;
+  /** 墙壁无敌时间（铜墙铁壁） */
+  private wallInvulnTimer = 0;
+
+  // ── 战斗打击感 ──
+  /** 暴击顿帧计时器 */
+  private hitStopTimer = 0;
+  /** 慢动作计时器 */
+  private slowMoTimer = 0;
+  private slowMoScale = 1;
+  /** 连击计数器 */
+  private hitCombo = 0;
+  private comboTimer = 0;
+  private hitComboMax = 0;
+  /** 低血量红屏 */
+  private redVignette!: Phaser.GameObjects.Graphics;
 
   // 供 UIScene 读取的公开状态
   runCoins = 0;
   wallHp = 0;
   wallMaxHp = 0;
+  wallShield = 0;
   levelName = '';
   waveLabel = '';
+  hitComboDisplay = 0;
 
   private choosingUpgrade = false;
   private finished = false;
@@ -48,37 +74,65 @@ export class GameScene extends Phaser.Scene {
     this.runCoins = 0;
     this.choosingUpgrade = false;
     this.finished = false;
+    this.missileTimer = 0;
+    this.shieldTimer = 0;
+    this.streakTimer = 0;
+    this.wallInvulnTimer = 0;
+    this.hitStopTimer = 0;
+    this.slowMoTimer = 0;
+    this.slowMoScale = 1;
+    this.hitCombo = 0;
+    this.comboTimer = 0;
+    this.hitComboMax = 0;
   }
 
   create(): void {
     this.levelName = this.level.name;
     this.wallMaxHp = MetaUpgrades.wallMaxHp();
     this.wallHp = this.wallMaxHp;
+    this.wallShield = 0;
 
     this.createBackground();
 
-    // 系统
-    this.upgrades = new UpgradeSystem();
-    this.upgrades.onRepair = () => {
-      this.wallHp = Math.min(this.wallMaxHp, this.wallHp + Math.round(this.wallMaxHp * 0.3));
+    // 技能系统
+    this.skills = new SkillSystem();
+    this.skills.onRepair = (ratio) => {
+      this.wallHp = Math.min(this.wallMaxHp, this.wallHp + Math.round(this.wallMaxHp * ratio));
+    };
+    this.skills.onSynergyActivated = (syn) => this.showSynergyNotification(syn);
+    this.skills.onKillStreak = (streak) => {
+      if (KILL_STREAK_THRESHOLDS.includes(streak)) {
+        this.showKillStreakBanner(streak);
+      }
     };
 
     this.waveManager = new WaveManager(this.level);
     this.waveManager.onSpawn = (type) => this.spawnZombie(type);
 
     // 对象池
-    this.bullets = this.physics.add.group({ classType: Bullet, maxSize: 300 });
-    this.zombies = this.physics.add.group({ classType: Zombie, maxSize: 120 });
-    this.coins = this.add.group({ classType: Coin, maxSize: 80 });
+    this.bullets = this.physics.add.group({ classType: Bullet, maxSize: 500 });
+    this.zombies = this.physics.add.group({ classType: Zombie, maxSize: 200 });
+    this.coins = this.add.group({ classType: Coin, maxSize: 100 });
+    this.acidBalls = this.physics.add.group({ classType: Bullet, maxSize: 60 });
+    this.missiles = this.physics.add.group({ classType: Bullet, maxSize: 40 });
+
+    // 激光束图形层
+    this.laserGraphics = this.add.graphics().setDepth(12);
+
+    // 低血量红屏警告
+    this.redVignette = this.add.graphics().setDepth(19).setAlpha(0);
 
     // 炮台
-    this.cannon = new Cannon(this, this.upgrades);
+    this.cannon = new Cannon(this, this.skills);
     this.cannon.onFire = (x, y, angle) => this.fireBullet(x, y, angle);
 
-    // 碰撞
+    // 子弹 vs 僵尸
     this.physics.add.overlap(this.bullets, this.zombies, (bObj, zObj) => {
       this.onBulletHit(bObj as Bullet, zObj as Zombie);
     });
+
+    // 酸球 vs 墙（远程僵尸攻击墙体）
+    // 酸球不碰撞墙，直接扣血（在酸球update里处理）
 
     // 手动瞄准
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => this.cannon.setManualAim(p.worldX, p.worldY));
@@ -98,9 +152,9 @@ export class GameScene extends Phaser.Scene {
     const bg = this.add.graphics().setDepth(-10);
     bg.fillGradientStyle(0x18222b, 0x18222b, 0x243b2c, 0x243b2c, 1);
     bg.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
-    // 路面纹理：随机碎石点
+    // 路面纹理
     bg.fillStyle(0xffffff, 0.03);
-    for (let i = 0; i < 90; i++) {
+    for (let i = 0; i < 120; i++) {
       bg.fillCircle(Phaser.Math.Between(0, GAME_WIDTH), Phaser.Math.Between(0, WALL_Y), Phaser.Math.Between(2, 6));
     }
     // 基地墙
@@ -109,217 +163,840 @@ export class GameScene extends Phaser.Scene {
     bg.fillStyle(0x11181f, 1).fillRect(0, WALL_Y + 48, GAME_WIDTH, GAME_HEIGHT - WALL_Y - 48);
   }
 
+  // ─── 波次 ───
+
   private beginWave(): void {
     if (this.finished) return;
     const started = this.waveManager.startNextWave();
     if (!started) return;
     this.waveLabel = `${this.waveManager.currentWave}/${this.waveManager.totalWaves}`;
 
-    // 波次横幅
     const banner = this.add
       .text(GAME_WIDTH / 2, GAME_HEIGHT * 0.35, `第 ${this.waveManager.currentWave} 波`, {
         fontFamily: FONT, fontSize: '64px', fontStyle: 'bold', color: '#ffd54a',
         stroke: '#1a2530', strokeThickness: 8,
       })
-      .setOrigin(0.5)
-      .setDepth(20)
-      .setAlpha(0);
+      .setOrigin(0.5).setDepth(20).setAlpha(0);
     this.tweens.add({
-      targets: banner,
-      alpha: 1,
-      duration: 250,
-      yoyo: true,
-      hold: 700,
+      targets: banner, alpha: 1, duration: 250, yoyo: true, hold: 700,
       onComplete: () => banner.destroy(),
     });
   }
 
-  private spawnZombie(type: ZombieTypeKey, x?: number, y?: number): void {
+  // ─── 生成僵尸 ───
+
+  spawnZombie(type: ZombieTypeKey, x?: number, y?: number): void {
     const z = this.zombies.get() as Zombie | null;
     if (!z) return;
     const sx = x ?? Phaser.Math.Between(70, GAME_WIDTH - 70);
     const sy = y ?? -80;
     z.spawn(type, sx, sy, this.level.hpScale, this.level.speedScale);
     z.onAttackWall = (dmg) => this.damageWall(dmg);
-    z.onSummon = (bx, by) => this.spawnZombie('normal', Phaser.Math.Clamp(bx + Phaser.Math.Between(-80, 80), 60, GAME_WIDTH - 60), by);
+    z.onSummon = (bx, by, summonType) => {
+      this.spawnZombie(summonType ?? 'normal',
+        Phaser.Math.Clamp(bx + Phaser.Math.Between(-80, 80), 60, GAME_WIDTH - 60), by);
+    };
+    z.onSpit = (sx2, sy2, angle, damage) => this.fireAcidBall(sx2, sy2, angle, damage);
+    z.onHeal = (healer) => {
+      const alive = this.aliveZombies();
+      healer.healNearby(alive);
+      // 治疗特效
+      this.showHealEffect(healer.x, healer.y);
+    };
+    z.onExplode = (ex, ey) => this.doExplosion(ex, ey);
   }
+
+  // ─── 子弹系统 ───
 
   private fireBullet(x: number, y: number, angle: number): void {
     const b = this.bullets.get() as Bullet | null;
     if (!b) return;
-    const isCrit = Math.random() < this.upgrades.critChance;
-    const dmg = this.upgrades.damage * (isCrit ? 2 : 1);
-    b.fire(x, y, angle, dmg, this.upgrades.pierce, isCrit);
+    const isCrit = Math.random() < this.skills.critChance;
+    const rawDmg = this.skills.damage * (1 + this.skills.streakDamageBonus) * (isCrit ? 2 : 1);
+    const comboMult = 1 + Math.min(this.hitCombo * 0.02, 1.0); // 连击倍率最高×2
+    const dmg = rawDmg * comboMult;
+    b.fire(x, y, angle, dmg, this.skills.pierce, isCrit);
   }
 
   private onBulletHit(bullet: Bullet, zombie: Zombie): void {
-    if (!bullet.active || !zombie.active || zombie.hp <= 0) return;
+    if (!bullet.active || !zombie.active || zombie.hp <= 0 || (zombie as any).dying) return;
 
     const died = zombie.takeDamage(bullet.damage);
-    this.showDamageText(zombie.x, zombie.y - 30, Math.round(bullet.damage), bullet.isCrit);
-    if (bullet.onHit()) bullet.recycle();
+    const actualDmg = Math.round(bullet.damage);
+    this.showDamageText(zombie.x, zombie.y - 30, actualDmg, bullet.isCrit);
 
-    if (died) this.killZombie(zombie);
-  }
-
-  private showDamageText(x: number, y: number, dmg: number, crit: boolean): void {
-    const t = this.add
-      .text(x, y, `${dmg}`, {
-        fontFamily: FONT,
-        fontSize: crit ? '34px' : '24px',
-        fontStyle: 'bold',
-        color: crit ? '#ffd54a' : '#ffffff',
-        stroke: '#000000',
-        strokeThickness: 4,
-      })
-      .setOrigin(0.5)
-      .setDepth(15);
-    this.tweens.add({
-      targets: t,
-      y: y - 46,
-      alpha: 0,
-      duration: 520,
-      ease: 'Cubic.Out',
-      onComplete: () => t.destroy(),
-    });
-  }
-
-  private killZombie(zombie: Zombie): void {
-    // 血雾粒子
-    this.add.particles(zombie.x, zombie.y, 'blood', {
-      speed: { min: 60, max: 180 },
-      lifespan: 380,
-      scale: { start: 1, end: 0 },
-      quantity: 10,
-      emitting: false,
-    }).explode(10);
-
-    // 掉金币
-    const value = Math.max(1, Math.round(zombie.coinValue * MetaUpgrades.coinMultiplier()));
-    const c = this.coins.get() as Coin | null;
-    if (c) {
-      c.drop(zombie.x, zombie.y, value, (v) => {
-        this.runCoins += v;
-      });
-    } else {
-      this.runCoins += value;
+    // 命中顿帧：暴击时短暂顿帧
+    if (bullet.isCrit) {
+      this.hitStop(40);
+      this.cameras.main.shake(80, 0.006);
+    } else if (actualDmg > this.skills.damage * 1.5) {
+      this.hitStop(20);
     }
 
-    zombie.recycle();
+    // 连击计数
+    this.hitCombo++;
+    this.comboTimer = 2.0;
+    if (this.hitCombo > this.hitComboMax) this.hitComboMax = this.hitCombo;
+    this.hitComboDisplay = this.hitCombo;
+
+    // 灼烧效果
+    if (this.skills.burnDps > 0 && zombie.hp > 0) {
+      this.applyBurn(zombie, this.skills.burnDps);
+    }
+
+    // 穿甲组合技：地狱穿甲弹
+    if (bullet.isCrit && this.skills.hasSynergy('detonation')) {
+      this.doExplosion(zombie.x, zombie.y);
+    }
+
+    if (bullet.onHit()) {
+      // 弹射
+      if (this.skills.ricochetCount > 0 && bullet.ricochetLeft > 0) {
+        this.ricochetBullet(bullet, zombie);
+      } else {
+        bullet.recycle();
+      }
+    }
+
+    if (died) {
+      this.killZombie(zombie);
+    }
   }
+
+  private ricochetBullet(bullet: Bullet, lastHit: Zombie): void {
+    const alive = this.aliveZombies().filter((z) => z !== lastHit && z.hp > 0);
+    if (alive.length === 0) { bullet.recycle(); return; }
+
+    let nearest: Zombie | null = null;
+    let minDist = 400;
+    for (const z of alive) {
+      const d = Phaser.Math.Distance.Between(lastHit.x, lastHit.y, z.x, z.y);
+      if (d < minDist) { minDist = d; nearest = z; }
+    }
+
+    if (nearest) {
+      bullet.ricochetLeft--;
+      const angle = Phaser.Math.Angle.Between(bullet.x, bullet.y, nearest.x, nearest.y);
+      bullet.fire(bullet.x, bullet.y, angle, bullet.damage, bullet.pierceLeft, bullet.isCrit);
+    } else {
+      bullet.recycle();
+    }
+  }
+
+  // ─── 酸球（远程僵尸攻击） ───
+
+  private fireAcidBall(x: number, y: number, angle: number, damage: number): void {
+    const b = this.acidBalls.get() as Bullet | null;
+    if (!b) return;
+    b.setTexture('acid_ball');
+    b.fire(x, y, angle, damage, 0, false);
+    b.setScale(1.2);
+    // 酸球碰到墙时伤害（自定义逻辑：检查y坐标）
+  }
+
+  // ─── 导弹系统 ───
+
+  private fireMissile(): void {
+    const alive = this.aliveZombies();
+    if (alive.length === 0) return;
+
+    for (let i = 0; i < this.skills.missileCount; i++) {
+      const m = this.missiles.get() as Bullet | null;
+      if (!m) return;
+      m.setTexture('bullet');
+      const angle = -Math.PI / 2 + Phaser.Math.FloatBetween(-0.3, 0.3);
+      m.fire(
+        this.cannon.x + Phaser.Math.Between(-20, 20),
+        this.cannon.y - 20,
+        angle,
+        this.skills.damage * 1.5,
+        0,
+        false,
+      );
+      m.setScale(1.5);
+      m.setTint(0xff4444);
+
+      // 追踪逻辑：每帧更新方向
+      const targetZombie = alive[Phaser.Math.Between(0, alive.length - 1)];
+      m.setData('target', targetZombie);
+      m.setData('homing', true);
+    }
+  }
+
+  // ─── 灼烧系统 ───
+
+  private burnEffects: { zombie: Zombie; dps: number; timer: number }[] = [];
+
+  private applyBurn(zombie: Zombie, dps: number): void {
+    // 刷新或叠加
+    const existing = this.burnEffects.find((e) => e.zombie === zombie);
+    if (existing) {
+      existing.dps = Math.max(existing.dps, dps);
+      existing.timer = 3;
+    } else {
+      this.burnEffects.push({ zombie, dps, timer: 3 });
+    }
+  }
+
+  private updateBurns(dt: number): void {
+    for (let i = this.burnEffects.length - 1; i >= 0; i--) {
+      const e = this.burnEffects[i];
+      e.timer -= dt;
+      if (e.timer <= 0 || !e.zombie.active || e.zombie.hp <= 0) {
+        this.burnEffects.splice(i, 1);
+        continue;
+      }
+      const dmg = e.dps * dt;
+      const died = e.zombie.takeDamage(dmg);
+      // 灼烧粒子
+      if (Math.random() < 0.3) {
+        this.showBurnParticle(e.zombie.x, e.zombie.y);
+      }
+      if (died) this.killZombie(e.zombie);
+    }
+  }
+
+  // ─── 护盾系统 ───
+
+  private updateWallShield(dt: number): void {
+    if (this.skills.shieldInterval === Infinity) return;
+    this.shieldTimer += dt;
+    if (this.shieldTimer >= this.skills.shieldInterval && this.wallShield <= 0) {
+      this.shieldTimer = 0;
+      this.wallShield = this.skills.shieldAmount;
+      this.showShieldActivateEffect();
+    }
+  }
+
+  // ─── 连杀系统 ───
+
+  private updateStreak(dt: number): void {
+    if (this.skills.killStreak > 0) {
+      this.streakTimer += dt;
+      if (this.streakTimer > 5) {
+        this.skills.resetStreak();
+        this.streakTimer = 0;
+      }
+    }
+  }
+
+  // ─── 激光束 ───
+
+  private updateLaser(): void {
+    this.laserGraphics.clear();
+    if (!this.skills.hasLaser || this.finished || this.choosingUpgrade) return;
+
+    const alive = this.aliveZombies();
+    if (alive.length === 0) return;
+
+    // 找最近僵尸
+    let nearest: Zombie | null = null;
+    let minDist = 1500;
+    for (const z of alive) {
+      if (!z.active || z.hp <= 0) continue;
+      const d = Phaser.Math.Distance.Between(this.cannon.x, this.cannon.y, z.x, z.y);
+      if (d < minDist) { minDist = d; nearest = z; }
+    }
+    if (!nearest) return;
+
+    const angle = Phaser.Math.Angle.Between(this.cannon.x, this.cannon.y, nearest.x, nearest.y);
+    const len = 1200;
+    const ex = this.cannon.x + Math.cos(angle) * len;
+    const ey = this.cannon.y + Math.sin(angle) * len;
+
+    // 画激光
+    this.laserGraphics.lineStyle(4, 0xff2222, 0.9);
+    this.laserGraphics.lineBetween(this.cannon.x, this.cannon.y, ex, ey);
+    this.laserGraphics.lineStyle(8, 0xff6666, 0.3);
+    this.laserGraphics.lineBetween(this.cannon.x, this.cannon.y, ex, ey);
+
+    // 激光伤害（每帧）
+    const isCrit = this.skills.hasSynergy('fatalLaser') || Math.random() < this.skills.critChance;
+    const dmg = this.skills.laserDps * (isCrit ? 2 : 1) * (this.delta / 1000);
+
+    // 碰撞检测：点到线段距离
+    for (const z of alive) {
+      if (!z.active || z.hp <= 0) continue;
+      const lx = ex - this.cannon.x;
+      const ly = ey - this.cannon.y;
+      const lenSq = lx * lx + ly * ly;
+      let t = ((z.x - this.cannon.x) * lx + (z.y - this.cannon.y) * ly) / lenSq;
+      t = Phaser.Math.Clamp(t, 0, 1);
+      const projX = this.cannon.x + t * lx;
+      const projY = this.cannon.y + t * ly;
+      const dist = Phaser.Math.Distance.Between(z.x, z.y, projX, projY);
+      if (dist < 30) {
+        const died = z.takeDamage(dmg);
+        if (died) this.killZombie(z);
+      }
+    }
+  }
+
+  // ─── 爆炸 ───
+
+  private doExplosion(x: number, y: number): void {
+    const radius = this.skills.hasSynergy('doomsday')
+      ? this.skills.explosiveRadius * 1.5
+      : this.skills.explosiveRadius;
+    const damage = this.skills.hasSynergy('doomsday')
+      ? this.skills.explosiveDamage * 1.5
+      : Math.max(this.skills.explosiveDamage, EXPLOSION_DAMAGE);
+
+    // 爆炸粒子
+    this.add.particles(x, y, 'explosion_particle', {
+      speed: { min: 80, max: 250 },
+      lifespan: 400,
+      scale: { start: 1.2, end: 0 },
+      quantity: 15,
+      emitting: false,
+    }).explode(15);
+
+    this.cameras.main.shake(150, 0.008);
+
+    // 对范围内僵尸造成伤害
+    const alive = this.aliveZombies();
+    for (const z of alive) {
+      if (!z.active || z.hp <= 0) continue;
+      const dist = Phaser.Math.Distance.Between(x, y, z.x, z.y);
+      if (dist < radius) {
+        const died = z.takeDamage(damage * (1 - dist / radius));
+        if (died) this.killZombie(z);
+      }
+    }
+  }
+
+  // ─── 墙壁伤害 ───
 
   private damageWall(dmg: number): void {
     if (this.finished) return;
+
+    // 铜墙铁壁无敌
+    if (this.wallInvulnTimer > 0) return;
+
+    // 护盾吸收
+    if (this.wallShield > 0) {
+      if (dmg <= this.wallShield) {
+        this.wallShield -= dmg;
+        this.cameras.main.shake(60, 0.002);
+        return;
+      }
+      dmg -= this.wallShield;
+      this.wallShield = 0;
+    }
+
+    // 钢铁壁垒减伤
+    dmg *= 1 - this.skills.wallDamageReduction;
+
     this.wallHp = Math.max(0, this.wallHp - dmg);
     this.cameras.main.shake(120, 0.004);
+
+    // 反伤
+    if (this.skills.thornsDamage > 0) {
+      // 对最近的僵尸造成反弹伤害
+      const alive = this.aliveZombies();
+      if (alive.length > 0) {
+        let nearest = alive[0];
+        let minD = Infinity;
+        for (const z of alive) {
+          if (!z.active || z.hp <= 0) continue;
+          const d = Phaser.Math.Distance.Between(GAME_WIDTH / 2, WALL_Y, z.x, z.y);
+          if (d < minD) { minD = d; nearest = z; }
+        }
+        nearest.takeDamage(dmg * this.skills.thornsDamage);
+        this.showDamageText(nearest.x, nearest.y - 20, Math.round(dmg * this.skills.thornsDamage), false);
+      }
+    }
+
+    // 铜墙铁壁：受伤后无敌
+    if (this.skills.hasIronWall) {
+      this.wallInvulnTimer = 2;
+    }
+
     if (this.wallHp <= 0) {
       this.endLevel(false);
     }
   }
 
+  // ─── 击杀僵尸 ───
+
+  private killZombie(zombie: Zombie): void {
+    // 击杀爆破感：增强粒子爆发
+    this.add.particles(zombie.x, zombie.y, 'blood', {
+      speed: { min: 80, max: 250 },
+      lifespan: 450,
+      scale: { start: 1.2, end: 0 },
+      quantity: 16,
+      emitting: false,
+    }).explode(16);
+
+    // 击杀径向闪光
+    this.showKillBurst(zombie.x, zombie.y, zombie.zType === 'boss');
+
+    // 连杀
+    this.skills.onKill();
+    this.streakTimer = 0;
+
+    // 爆炸弹效果
+    if (this.skills.explosiveDamage > 0) {
+      this.doExplosion(zombie.x, zombie.y);
+    }
+
+    // 掉金币
+    const value = Math.max(1, Math.round(zombie.coinValue * this.skills.coinMultiplier));
+    const c = this.coins.get() as Coin | null;
+    if (c) {
+      c.drop(zombie.x, zombie.y, value, (v) => {
+        this.runCoins += v;
+        if (this.skills.healPerCoin > 0) {
+          this.wallHp = Math.min(this.wallMaxHp, this.wallHp + this.skills.healPerCoin);
+        }
+      });
+    } else {
+      this.runCoins += value;
+    }
+
+    // 自爆者死亡爆炸
+    if (zombie.zType === 'exploder' && zombie.onExplode) {
+      zombie.onExplode(zombie.x, zombie.y);
+    }
+
+    // 死亡动画后回收
+    zombie.die(() => {
+      zombie.recycle();
+    });
+  }
+
+  // ─── 工具方法 ───
+
   private aliveZombies(): Zombie[] {
     return (this.zombies.getChildren() as Zombie[]).filter((z) => z.active && z.hp > 0);
   }
 
+  private showDamageText(x: number, y: number, dmg: number, crit: boolean): void {
+    const isMega = crit || dmg > this.skills.damage * 3;
+    const size = crit ? (dmg > 50 ? '48px' : '38px') : (dmg > 20 ? '28px' : '22px');
+    const color = crit ? '#ffd54a' : '#ffffff';
+    const prefix = crit ? '暴击! ' : (dmg > 30 ? '' : '');
+    const t = this.add
+      .text(x + Phaser.Math.Between(-10, 10), y, `${prefix}${dmg}`, {
+        fontFamily: FONT,
+        fontSize: size,
+        fontStyle: 'bold',
+        color,
+        stroke: crit ? '#6d4c00' : '#000000',
+        strokeThickness: crit ? 6 : 4,
+      })
+      .setOrigin(0.5).setDepth(15).setScale(isMega ? 1.3 : 1);
+    this.tweens.add({
+      targets: t, y: y - 50, alpha: 0, duration: 520, ease: 'Cubic.Out',
+      scale: isMega ? 0.8 : 0.6,
+      onComplete: () => t.destroy(),
+    });
+  }
+
+  private showKillBurst(x: number, y: number, isBoss: boolean): void {
+    const burst = this.add.graphics().setDepth(13);
+    const maxR = isBoss ? 120 : 50;
+    const color = isBoss ? 0xff1744 : 0xffd54a;
+    burst.fillStyle(color, 0.7).fillCircle(0, 0, maxR);
+    burst.setPosition(x, y);
+    this.tweens.add({
+      targets: burst, alpha: 0, scale: isBoss ? 2 : 1.8, duration: 300, ease: 'Cubic.Out',
+      onComplete: () => burst.destroy(),
+    });
+    // 击杀镜头震动
+    if (isBoss) {
+      this.cameras.main.shake(300, 0.015);
+    }
+  }
+
+  private showBurnParticle(x: number, y: number): void {
+    const px = x + Phaser.Math.Between(-15, 15);
+    const py = y + Phaser.Math.Between(-20, 10);
+    const dot = this.add.graphics().setDepth(14);
+    dot.fillStyle(0xff6d00, 0.8).fillCircle(0, 0, 4);
+    dot.setPosition(px, py);
+    this.tweens.add({
+      targets: dot, y: py - 30, alpha: 0, duration: 400,
+      onComplete: () => dot.destroy(),
+    });
+  }
+
+  private showHealEffect(x: number, y: number): void {
+    for (let i = 0; i < 3; i++) {
+      const cross = this.add.image(x + Phaser.Math.Between(-20, 20), y + Phaser.Math.Between(-10, 20), 'heal_cross')
+        .setDepth(14).setAlpha(0.8).setScale(0.8);
+      this.tweens.add({
+        targets: cross, y: cross.y - 40, alpha: 0, duration: 600, delay: i * 100,
+        onComplete: () => cross.destroy(),
+      });
+    }
+  }
+
+  private showShieldActivateEffect(): void {
+    const shield = this.add.image(GAME_WIDTH / 2, WALL_Y + 24, 'shield_bubble')
+      .setDepth(11).setScale(0).setAlpha(0.6);
+    this.tweens.add({
+      targets: shield, scale: 4, alpha: 0, duration: 800, ease: 'Cubic.Out',
+      onComplete: () => shield.destroy(),
+    });
+  }
+
+  private showSynergyNotification(syn: SynergyDef): void {
+    const bg = this.add.graphics().setDepth(25);
+    bg.fillStyle(0xffa726, 0.9).fillRoundedRect(GAME_WIDTH / 2 - 240, 160, 480, 90, 16);
+    bg.fillStyle(0xffffff, 0.15).fillRoundedRect(GAME_WIDTH / 2 - 240, 160, 480, 45, { tl: 16, tr: 16, bl: 0, br: 0 });
+
+    const icon = this.add.image(GAME_WIDTH / 2 - 180, 205, syn.icon).setScale(1.3).setDepth(26);
+    const title = this.add.text(GAME_WIDTH / 2 - 140, 185, syn.name, {
+      fontFamily: FONT, fontSize: '32px', fontStyle: 'bold', color: '#1a2530',
+    }).setDepth(26);
+    const desc = this.add.text(GAME_WIDTH / 2 - 140, 218, syn.desc, {
+      fontFamily: FONT, fontSize: '20px', color: '#4a2500',
+    }).setDepth(26);
+    const label = this.add.text(GAME_WIDTH / 2 + 200, 185, '组合技!', {
+      fontFamily: FONT, fontSize: '26px', fontStyle: 'bold', color: '#ffffff',
+    }).setOrigin(1, 0).setDepth(26);
+
+    const elements = [bg, icon, title, desc, label];
+    this.tweens.add({
+      targets: elements, alpha: 0, duration: 400, delay: 3000,
+      onComplete: () => elements.forEach((e) => e.destroy()),
+    });
+  }
+
+  private showKillStreakBanner(streak: number): void {
+    let text = '';
+    let color = '#ffd54a';
+    if (streak >= 50) { text = `连杀 ${streak}!  暴走!!!`; color = '#ff1744'; }
+    else if (streak >= 30) { text = `连杀 ${streak}!  无人能挡!`; color = '#ff6d00'; }
+    else if (streak >= 15) { text = `连杀 ${streak}!  势不可挡!`; color = '#ffd54a'; }
+    else { text = `连杀 ${streak}!`; }
+
+    const banner = this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT * 0.25, text, {
+        fontFamily: FONT, fontSize: '52px', fontStyle: 'bold', color,
+        stroke: '#1a2530', strokeThickness: 6,
+      })
+      .setOrigin(0.5).setDepth(20).setAlpha(0);
+    this.tweens.add({
+      targets: banner, alpha: 1, duration: 200, yoyo: true, hold: 800,
+      onComplete: () => banner.destroy(),
+    });
+  }
+
+  // ─── 主循环 ───
+
+  private delta = 0;
+
   update(_time: number, delta: number): void {
     if (this.finished || this.choosingUpgrade) return;
+    this.delta = delta;
     const dt = delta / 1000;
 
     const alive = this.aliveZombies();
     this.cannon.update(dt, alive);
     this.waveManager.update(dt, alive.length);
 
-    // 一波清空
+    // 顿帧：顿帧期间跳过游戏逻辑更新
+    this.updateHitStop(dt);
+    if (this.hitStopTimer > 0) return;
+
+    // 慢动作
+    this.updateSlowMo(dt);
+    const effectiveDt = dt * this.slowMoScale;
+
+    // 连击计时
+    this.updateCombo(dt);
+
+    // 低血量红屏
+    this.updateRedVignette();
+
+    // 连杀超时
+    this.updateStreak(effectiveDt);
+
+    // 灼烧
+    this.updateBurns(effectiveDt);
+
+    // 护盾
+    this.updateWallShield(effectiveDt);
+
+    // 铜墙铁壁无敌计时
+    if (this.wallInvulnTimer > 0) this.wallInvulnTimer -= effectiveDt;
+
+    // 追踪导弹
+    if (this.skills.missileInterval < Infinity) {
+      this.missileTimer += effectiveDt;
+      if (this.missileTimer >= this.skills.missileInterval) {
+        this.missileTimer = 0;
+        this.fireMissile();
+      }
+    }
+
+    // 激光束
+    this.updateLaser();
+
+    // 酸球出屏回收
+    (this.acidBalls.getChildren() as Bullet[]).forEach((b) => {
+      if (b.active && b.y > WALL_Y) {
+        this.damageWall(b.damage);
+        b.recycle();
+      }
+    });
+
+    // 追踪导弹更新
+    (this.missiles.getChildren() as Bullet[]).forEach((m) => {
+      if (!m.active) return;
+      const target = m.getData('target') as Zombie | undefined;
+      if (target && target.active && target.hp > 0) {
+        const angle = Phaser.Math.Angle.Between(m.x, m.y, target.x, target.y);
+        const body = m.body as Phaser.Physics.Arcade.Body;
+        this.physics.velocityFromRotation(angle, 600, body.velocity);
+        m.setRotation(angle + Math.PI / 2);
+      }
+      // 出屏或接近目标回收
+      if (m.y < -60 || m.y > GAME_HEIGHT + 60 || m.x < -60 || m.x > GAME_WIDTH + 60) {
+        m.recycle();
+      }
+    });
+
+    // 波次清空：慢动作 + 下一波提示
     if (this.waveManager.state === 'idle' && this.waveManager.currentWave > 0 && alive.length === 0) {
       if (this.waveManager.isLastWave) {
-        this.endLevel(true);
+        this.applySlowMo(0.8, 0.3);
+        this.time.delayedCall(800, () => this.endLevel(true));
       } else {
-        this.showUpgradeChoices();
+        this.applySlowMo(0.5, 0.4);
+        this.time.delayedCall(500, () => this.showUpgradeChoices());
       }
     }
   }
 
-  // ---------- 三选一升级 ----------
+  // ─── 战斗手感系统 ───
+
+  /** 暴击顿帧 */
+  private hitStop(ms: number): void {
+    this.hitStopTimer = ms / 1000;
+  }
+
+  /** 慢动作效果 */
+  private applySlowMo(duration: number, scale: number): void {
+    this.slowMoTimer = duration;
+    this.slowMoScale = scale;
+  }
+
+  private updateSlowMo(dt: number): void {
+    if (this.slowMoTimer > 0) {
+      this.slowMoTimer -= dt;
+      if (this.slowMoTimer <= 0) this.slowMoScale = 1;
+    }
+  }
+
+  private updateHitStop(dt: number): void {
+    if (this.hitStopTimer > 0) this.hitStopTimer -= dt;
+  }
+
+  private updateCombo(dt: number): void {
+    if (this.hitCombo > 0) {
+      this.comboTimer -= dt;
+      if (this.comboTimer <= 0) {
+        this.hitCombo = 0;
+        this.hitComboDisplay = 0;
+      }
+    }
+  }
+
+  private updateRedVignette(): void {
+    this.redVignette.clear();
+    if (this.wallMaxHp <= 0) return;
+    const ratio = this.wallHp / this.wallMaxHp;
+    if (ratio > 0.25) {
+      this.redVignette.setAlpha(0);
+      return;
+    }
+    // 低血量红屏：越低越红，带脉动
+    const intensity = (0.25 - ratio) / 0.25; // 0~1
+    const pulse = Math.sin(this.time.now * 0.005) * 0.15 + 0.85;
+    const alpha = intensity * 0.5 * pulse;
+    // 从屏幕边缘画红色渐变
+    this.redVignette.fillStyle(0xff0000, alpha * 0.3);
+    this.redVignette.fillRect(0, 0, GAME_WIDTH, 40);
+    this.redVignette.fillRect(0, GAME_HEIGHT - 40, GAME_WIDTH, 40);
+    this.redVignette.fillRect(0, 0, 20, GAME_HEIGHT);
+    this.redVignette.fillRect(GAME_WIDTH - 20, 0, 20, GAME_HEIGHT);
+  }
+
+  // ─── 三选一技能选择 ───
 
   private showUpgradeChoices(): void {
     this.choosingUpgrade = true;
     this.physics.pause();
 
-    const choices = this.upgrades.rollChoices(3);
-    if (choices.length === 0) {
-      // 全满级：直接下一波
-      this.resumeAfterChoice();
-      return;
-    }
+    const rebuild = () => {
+      // 清理旧UI
+      overlay?.destroy();
+      title?.destroy();
+      cards.forEach((c) => c.destroy());
+      rerollBtn?.destroy();
+      pendingText?.destroy();
+      cards = [];
 
-    const overlay = createOverlay(this, 0.6).setDepth(30);
-    const title = this.add
-      .text(GAME_WIDTH / 2, 300, '选择一项强化', {
-        fontFamily: FONT, fontSize: '44px', fontStyle: 'bold', color: '#ffffff',
-        stroke: '#1a2530', strokeThickness: 6,
-      })
-      .setOrigin(0.5)
-      .setDepth(31);
-
-    const cards: Phaser.GameObjects.Container[] = [];
-    const cardW = 200;
-    const gap = 24;
-    const totalW = choices.length * cardW + (choices.length - 1) * gap;
-    const startX = (GAME_WIDTH - totalW) / 2 + cardW / 2;
-
-    choices.forEach((key, i) => {
-      const card = this.createUpgradeCard(startX + i * (cardW + gap), 560, key, () => {
-        this.upgrades.apply(key);
-        overlay.destroy();
-        title.destroy();
-        cards.forEach((c) => c.destroy());
+      const choices = this.skills.rollChoices(3);
+      if (choices.length === 0) {
         this.resumeAfterChoice();
+        return;
+      }
+
+      overlay = createOverlay(this, 0.6).setDepth(30);
+      title = this.add
+        .text(GAME_WIDTH / 2, 180, '选择一项强化', {
+          fontFamily: FONT, fontSize: '44px', fontStyle: 'bold', color: '#ffffff',
+          stroke: '#1a2530', strokeThickness: 6,
+        })
+        .setOrigin(0.5).setDepth(31);
+
+      // 显示差一个就能激活的组合技提示
+      const pending = this.skills.getPendingSynergies();
+      if (pending.length > 0) {
+        const pText = pending.map((p) => `⚡${p.synergy.name} → 需要 ${getSkill(p.missingSkill).name}`).join('  |  ');
+        pendingText = this.add
+          .text(GAME_WIDTH / 2, 240, pText, {
+            fontFamily: FONT, fontSize: '18px', fontStyle: 'bold', color: '#ffa726',
+            stroke: '#1a2530', strokeThickness: 3,
+            wordWrap: { width: GAME_WIDTH - 60 }, align: 'center',
+          })
+          .setOrigin(0.5).setDepth(31);
+      }
+
+      const cardW = 190;
+      const gap = 20;
+      const totalW = choices.length * cardW + (choices.length - 1) * gap;
+      const startX = (GAME_WIDTH - totalW) / 2 + cardW / 2;
+
+      choices.forEach((choice, i) => {
+        const card = this.createSkillCard(startX + i * (cardW + gap), 520, choice, () => {
+          this.skills.apply(choice.skill.key);
+          overlay?.destroy();
+          title?.destroy();
+          cards.forEach((c) => c.destroy());
+          rerollBtn?.destroy();
+          pendingText?.destroy();
+          this.resumeAfterChoice();
+        });
+        cards.push(card);
       });
-      cards.push(card);
-    });
+
+      // Reroll 按钮
+      const rerollCost = this.skills.getRerollCost();
+      const canAfford = this.skills.canReroll(this.runCoins);
+      rerollBtn = this.add.container(GAME_WIDTH / 2, 780).setDepth(31);
+      const rbBg = this.add.graphics();
+      const rbW = 200;
+      const rbH = 56;
+      const rbColor = canAfford ? 0x5d4037 : 0x3a3a3a;
+      rbBg.fillStyle(0x000000, 0.3).fillRoundedRect(-rbW / 2 + 2, -rbH / 2 + 3, rbW, rbH, 12);
+      rbBg.fillStyle(rbColor, 1).fillRoundedRect(-rbW / 2, -rbH / 2, rbW, rbH, 12);
+      const rbTxt = this.add.text(0, -2, `🔄 重铸 (${rerollCost}金)`, {
+        fontFamily: FONT, fontSize: '22px', fontStyle: 'bold',
+        color: canAfford ? '#ffd54a' : '#666666',
+      }).setOrigin(0.5);
+      rerollBtn.add([rbBg, rbTxt]);
+      rerollBtn.setSize(rbW, rbH);
+      if (canAfford) {
+        rerollBtn.setInteractive({ useHandCursor: true });
+        rerollBtn.on('pointerdown', () => {
+          if (this.skills.canReroll(this.runCoins)) {
+            this.runCoins -= this.skills.getRerollCost();
+            rebuild();
+          }
+        });
+        rerollBtn.on('pointerover', () => rerollBtn!.setScale(1.08));
+        rerollBtn.on('pointerout', () => rerollBtn!.setScale(1));
+      }
+    };
+
+    let overlay: Phaser.GameObjects.Rectangle | null = null;
+    let title: Phaser.GameObjects.Text | null = null;
+    let cards: Phaser.GameObjects.Container[] = [];
+    let rerollBtn: Phaser.GameObjects.Container | null = null;
+    let pendingText: Phaser.GameObjects.Text | null = null;
+    rebuild();
   }
 
-  private createUpgradeCard(x: number, y: number, key: RunUpgradeKey, onPick: () => void): Phaser.GameObjects.Container {
-    const cfg = RUN_UPGRADES[key];
-    const w = 200;
-    const h = 300;
+  private createSkillCard(x: number, y: number, choice: RollChoice, onPick: () => void): Phaser.GameObjects.Container {
+    const { skill, currentLevel, nearSynergies, synergyHints } = choice;
+    const w = 180;
+    const hasNearSynergy = nearSynergies.length > 0;
+    const h = hasNearSynergy ? 370 : 320;
+    const rarityColor = RARITY_HEX[skill.rarity];
 
     const g = this.add.graphics();
-    g.fillStyle(0x22303c, 1).fillRoundedRect(-w / 2, -h / 2, w, h, 18);
-    g.lineStyle(3, 0x4caf50, 0.9).strokeRoundedRect(-w / 2, -h / 2, w, h, 18);
+    // 背景
+    g.fillStyle(0x1a2530, 1).fillRoundedRect(-w / 2, -h / 2, w, h, 18);
+    // 稀有度边框
+    const borderColor = parseInt(rarityColor.replace('#', ''), 16);
+    g.lineStyle(3, borderColor, 0.9).strokeRoundedRect(-w / 2, -h / 2, w, h, 18);
+    // 顶部稀有度色带
+    g.fillStyle(borderColor, 0.3).fillRoundedRect(-w / 2, -h / 2, w, 50,
+      { tl: 18, tr: 18, bl: 0, br: 0 });
+    // 即将激活组合技的高亮边框
+    if (hasNearSynergy) {
+      g.lineStyle(3, 0xffa726, 0.9).strokeRoundedRect(-w / 2 - 3, -h / 2 - 3, w + 6, h + 6, 20);
+    }
 
-    const icon = this.add.image(0, -70, cfg.icon).setScale(1.2);
+    const rarityText = this.add
+      .text(0, -h / 2 + 25, skill.rarity === 'legendary' ? '传说' : skill.rarity === 'epic' ? '史诗' : skill.rarity === 'rare' ? '稀有' : '普通', {
+        fontFamily: FONT, fontSize: '18px', fontStyle: 'bold', color: rarityColor,
+      })
+      .setOrigin(0.5);
+
+    const icon = this.add.image(0, -50, skill.icon).setScale(1.2);
     const name = this.add
-      .text(0, 10, cfg.name, {
-        fontFamily: FONT, fontSize: '28px', fontStyle: 'bold', color: '#ffffff',
+      .text(0, 20, skill.name, {
+        fontFamily: FONT, fontSize: '26px', fontStyle: 'bold', color: '#ffffff',
       })
       .setOrigin(0.5);
     const lv = this.add
-      .text(0, 48, `Lv.${this.upgrades.getLevel(key)} → Lv.${this.upgrades.getLevel(key) + 1}`, textStyle(20, '#8fbf8f'))
+      .text(0, 55, currentLevel === 0 ? '新技能!' : `Lv.${currentLevel} → Lv.${currentLevel + 1}`,
+        textStyle(18, '#8fbf8f'))
       .setOrigin(0.5);
     const desc = this.add
-      .text(0, 100, cfg.desc, { ...textStyle(20, '#aab8c2'), wordWrap: { width: w - 30 }, align: 'center' })
+      .text(0, 105, skill.desc, { ...textStyle(18, '#aab8c2'), wordWrap: { width: w - 24 }, align: 'center' })
       .setOrigin(0.5);
 
-    const card = this.add.container(x, y, [g, icon, name, lv, desc]).setDepth(31);
-    card.setSize(w, h).setInteractive({ useHandCursor: true });
-    let pressed = false; // 要求按下+释放都在卡片上，避免瞬间误选
-    card.on('pointerdown', () => {
-      pressed = true;
-      card.setScale(1.05);
-    });
-    card.on('pointerover', () => card.setScale(1.05));
-    card.on('pointerout', () => {
-      pressed = false;
-      card.setScale(1);
-    });
-    card.on('pointerup', () => {
-      if (pressed) onPick();
-    });
+    const children: Phaser.GameObjects.GameObject[] = [g, rarityText, icon, name, lv, desc];
 
-    // 入场动画
+    // 组合技提示
+    if (hasNearSynergy) {
+      const nearText = nearSynergies.map((s) => `⚡可激活: ${s.name}`).join('\n');
+      const hint = this.add
+        .text(0, 155, nearText, {
+          ...textStyle(16, '#ffa726'), fontStyle: 'bold',
+          wordWrap: { width: w - 20 }, align: 'center',
+        })
+        .setOrigin(0.5);
+      children.push(hint);
+    } else if (synergyHints.length > 0) {
+      const hintText = synergyHints.slice(0, 2).map((s) => `→ ${s.name}`).join('\n');
+      const hint = this.add
+        .text(0, h / 2 - 30, hintText, {
+          ...textStyle(14, '#7a8a99'),
+          wordWrap: { width: w - 20 }, align: 'center',
+        })
+        .setOrigin(0.5);
+      children.push(hint);
+    }
+
+    const card = this.add.container(x, y, children).setDepth(31);
+    card.setSize(w, h).setInteractive({ useHandCursor: true });
+    let pressed = false;
+    card.on('pointerdown', () => { pressed = true; card.setScale(1.06); });
+    card.on('pointerover', () => card.setScale(1.06));
+    card.on('pointerout', () => { pressed = false; card.setScale(1); });
+    card.on('pointerup', () => { if (pressed) onPick(); });
+
     card.setScale(0.8).setAlpha(0);
-    this.tweens.add({ targets: card, scale: 1, alpha: 1, duration: 200, ease: 'Back.Out' });
+    this.tweens.add({ targets: card, scale: 1, alpha: 1, duration: 220, ease: 'Back.Out' });
     return card;
   }
 
@@ -329,7 +1006,7 @@ export class GameScene extends Phaser.Scene {
     this.beginWave();
   }
 
-  // ---------- 结算 ----------
+  // ─── 结算 ───
 
   private endLevel(victory: boolean): void {
     if (this.finished) return;
@@ -343,7 +1020,6 @@ export class GameScene extends Phaser.Scene {
       coinsEarned = this.runCoins + levelClearReward(this.level.id, stars);
       SaveManager.recordLevelClear(this.level.id, stars, LEVELS.length);
     } else {
-      // 失败保留一半局内金币
       coinsEarned = Math.floor(this.runCoins / 2);
     }
     SaveManager.addCoins(coinsEarned);
@@ -355,6 +1031,9 @@ export class GameScene extends Phaser.Scene {
         victory,
         stars,
         coinsEarned,
+        maxStreak: this.skills.maxKillStreak,
+        totalKills: this.skills.totalKills,
+        synergies: this.skills.getActiveSynergies().map((s) => s.name),
       });
     });
   }
