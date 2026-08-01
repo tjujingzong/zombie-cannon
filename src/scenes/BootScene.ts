@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
+import { AudioSystem } from '../systems/AudioSystem';
 
 /**
- * BootScene：全部纹理用 Graphics 程序化生成，生成完毕直接进入菜单
+ * BootScene：全部纹理用 graphics 程序化生成，生成完毕直接进入菜单
  */
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -9,18 +10,77 @@ export class BootScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.makeBullet();
-    this.makeZombies();
-    this.makeCoin();
-    this.makeCannon();
-    this.makeWall();
-    this.makeUpgradeIcons();
-    this.makeParticles();
-    this.makeAcidBall();
-    this.makeExplosionEffect();
-    this.makeHealEffect();
-    this.makeShieldEffect();
+    try {
+      this.makeBullet();
+      this.makeZombies();
+      this.makeCoin();
+      this.makeCannon();
+      this.makeWall();
+      this.makeUpgradeIcons();
+      this.makeParticles();
+      this.makeAcidBall();
+      this.makeExplosionEffect();
+      this.makeHealEffect();
+      this.makeShieldEffect();
+      this.makeMuzzleFlash();
+      this.makeBossAura();
+      this.makeBulletTrail();
+      this.makeShockwave();
+      this.makeBossCrown();
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[Boot] 纹理生成失败:', e);
+    }
+
+    AudioSystem.loadMutedPref();
+    // 全局手势解锁由 AudioSystem 内部接管（解决 autoplay policy）
+
     this.scene.start('Menu');
+  }
+
+  private makeMuzzleFlash(): void {
+    const g = this.g();
+    g.fillStyle(0xffffff, 1).fillCircle(16, 16, 5);
+    g.fillStyle(0xffeb3b, 0.8).fillCircle(16, 16, 10);
+    g.fillStyle(0xff9800, 0.4).fillCircle(16, 16, 16);
+    g.generateTexture('muzzle_flash', 32, 32);
+    g.destroy();
+  }
+
+  private makeBossAura(): void {
+    const g = this.g();
+    g.fillStyle(0x9455a8, 0.25).fillCircle(40, 12, 36);
+    g.lineStyle(3, 0xce93d8, 0.7).strokeCircle(40, 12, 30);
+    g.lineStyle(2, 0xff66ff, 0.4).strokeCircle(40, 12, 22);
+    g.generateTexture('boss_aura', 80, 24);
+    g.destroy();
+  }
+
+  private makeBulletTrail(): void {
+    const g = this.g();
+    g.fillStyle(0xffe066, 0.7).fillEllipse(4, 12, 6, 22);
+    g.fillStyle(0xffffff, 0.4).fillEllipse(4, 8, 3, 14);
+    g.generateTexture('bullet_trail', 8, 24);
+    g.destroy();
+  }
+
+  private makeShockwave(): void {
+    const g = this.g();
+    g.lineStyle(3, 0xffffff, 0.9).strokeCircle(24, 24, 20);
+    g.lineStyle(2, 0xffd54a, 0.5).strokeCircle(24, 24, 14);
+    g.generateTexture('shockwave', 48, 48);
+    g.destroy();
+  }
+
+  private makeBossCrown(): void {
+    const g = this.g();
+    g.fillStyle(0xffd54a, 1);
+    g.fillTriangle(10, 18, 4, 4, 16, 8);
+    g.fillTriangle(20, 18, 16, 2, 28, 8);
+    g.fillTriangle(30, 18, 24, 4, 36, 8);
+    g.fillStyle(0xe74c3c, 1).fillCircle(20, 8, 3);
+    g.generateTexture('boss_crown', 40, 20);
+    g.destroy();
   }
 
   private g(): Phaser.GameObjects.Graphics {

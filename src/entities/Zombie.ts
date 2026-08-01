@@ -39,6 +39,10 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
 
   private hpBar!: Phaser.GameObjects.Graphics;
   private shieldBar!: Phaser.GameObjects.Graphics;
+  /** Boss 脚下光环（持续显示） */
+  private bossAura?: Phaser.GameObjects.Image;
+  /** Boss 头顶王冠 */
+  private bossCrown?: Phaser.GameObjects.Image;
 
   /** 触墙攻击回调 */
   onAttackWall: (dmg: number) => void = () => {};
@@ -88,6 +92,25 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     if (!this.shieldBar) this.shieldBar = this.scene.add.graphics();
     this.hpBar.setVisible(true).setDepth(6);
     this.shieldBar.setVisible(type === 'shield').setDepth(6);
+
+    // Boss 光环 + 王冠
+    if (type === 'boss') {
+      if (!this.bossAura) {
+        this.bossAura = this.scene.add.image(this.x, this.y + 30, 'boss_aura').setDepth(4);
+      }
+      this.bossAura.setVisible(true).setPosition(this.x, this.y + 30).setScale(2.5);
+      this.scene.tweens.add({
+        targets: this.bossAura, alpha: 0.4, duration: 800, yoyo: true, repeat: -1, ease: 'Sine.InOut',
+      });
+      if (!this.bossCrown) {
+        this.bossCrown = this.scene.add.image(this.x, this.y - 50, 'boss_crown').setDepth(7);
+      }
+      this.bossCrown.setVisible(true).setPosition(this.x, this.y - 50);
+    } else {
+      this.bossAura?.setVisible(false);
+      this.bossCrown?.setVisible(false);
+    }
+
     this.drawHpBar();
   }
 
@@ -150,6 +173,8 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     this.dying = false;
     if (this.hpBar) this.hpBar.clear().setVisible(false);
     if (this.shieldBar) this.shieldBar.clear().setVisible(false);
+    this.bossAura?.setVisible(false);
+    this.bossCrown?.setVisible(false);
     this.disableBody(true, true);
   }
 
@@ -283,6 +308,10 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
 
     this.drawHpBar();
     if (this.shield > 0) this.drawShieldBar();
+
+    // Boss 光环/王冠跟随移动
+    if (this.bossAura && this.bossAura.visible) this.bossAura.setPosition(this.x, this.y + 30);
+    if (this.bossCrown && this.bossCrown.visible) this.bossCrown.setPosition(this.x, this.y - 50);
   }
 
   /** 治愈者治疗附近僵尸（由 GameScene 调用） */

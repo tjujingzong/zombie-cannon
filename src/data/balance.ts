@@ -11,7 +11,6 @@ export const CANNON_Y = GAME_HEIGHT - 130;
 export const CANNON_BASE_DAMAGE = 10;
 export const CANNON_BASE_FIRE_RATE = 2.0; // 每秒发射次数
 export const BULLET_SPEED = 900;
-export const CANNON_RANGE = 1400; // 索敌距离（覆盖全屏）
 
 // 僵尸基础属性（关卡通过 hpScale 系数放大）
 export interface ZombieStats {
@@ -40,6 +39,80 @@ export const ZOMBIE_TYPES: Record<string, ZombieStats> = {
 };
 
 export type ZombieTypeKey = keyof typeof ZOMBIE_TYPES;
+
+// ── 僵尸图鉴：弱点 / 行为 / 战术（用于 CodexScene 展示） ──
+export interface ZombieCodex {
+  /** 角色定位 */
+  role: string;
+  /** 行为描述 */
+  behavior: string;
+  /** 弱点标签（与技能关键字对齐） */
+  weaknesses: string[];
+  /** 推荐应对策略 */
+  counter: string;
+  /** 首次出现关卡 */
+  firstSeen: number;
+  /** 威胁等级 1~5 */
+  threat: number;
+}
+
+export const ZOMBIE_CODEX: Record<ZombieTypeKey, ZombieCodex> = {
+  normal: {
+    role: '普通步兵', behavior: '直线推进，触墙后周期攻击。无特殊能力。',
+    weaknesses: ['任何攻击'], counter: '基础攻击即可应对，注意数量积累。',
+    firstSeen: 1, threat: 1,
+  },
+  fast: {
+    role: '突袭兵', behavior: '移动速度极快，提前逼近墙体。',
+    weaknesses: ['范围伤害', '减速'], counter: '用多重炮管/弹射弹覆盖，或穿甲弹一击多发。',
+    firstSeen: 1, threat: 2,
+  },
+  tank: {
+    role: '重甲肉盾', behavior: '血厚、速度慢，吸收火力掩护同伴。',
+    weaknesses: ['灼烧（持续伤害）', '暴击', '百分比伤害'], counter: '用灼烧弹+暴击组合（爆燃弹）高效削减。',
+    firstSeen: 2, threat: 3,
+  },
+  boss: {
+    role: '尸潮之王', behavior: '血量极高，周期召唤普通僵尸，触墙伤害巨大。',
+    weaknesses: ['持续输出', '组合技爆发'], counter: '囤满激光+导弹+爆炸（末日审判）一波带走，注意控场小怪。',
+    firstSeen: 5, threat: 5,
+  },
+  spitter: {
+    role: '远程喷射者', behavior: '进入射程后停下，远程喷射酸球攻击墙体。',
+    weaknesses: ['穿透弹', '追踪导弹'], counter: '穿甲弹越过小怪直接命中；追踪导弹优先点名。',
+    firstSeen: 4, threat: 3,
+  },
+  exploder: {
+    role: '自爆兵', behavior: '死亡时爆炸，对周围僵尸和墙体造成范围伤害。',
+    weaknesses: ['远程击杀', '范围伤害'], counter: '在远处用穿透弹/导弹击杀，远离墙体；爆炸可波及友军。',
+    firstSeen: 3, threat: 3,
+  },
+  healer: {
+    role: '治愈者', behavior: '周期治疗附近僵尸，恢复其血量。',
+    weaknesses: ['优先击杀', '爆发伤害'], counter: '必须最先击杀！用追踪导弹/激光点名，否则前排打不动。',
+    firstSeen: 4, threat: 4,
+  },
+  shield: {
+    role: '护盾卫士', behavior: '携带能量护盾，必须先破盾才能造成本体伤害。',
+    weaknesses: ['高爆发', '范围伤害'], counter: '用爆炸弹/末日弹破盾，或激光持续穿透护盾。',
+    firstSeen: 5, threat: 4,
+  },
+  ghost: {
+    role: '幽灵', behavior: '周期性隐身，隐身期间无法被命中（灼烧仍生效）。',
+    weaknesses: ['灼烧（持续生效）', '现身窗口'], counter: '上灼烧弹让 DOT 持续生效；把握现身瞬间爆发输出。',
+    firstSeen: 6, threat: 4,
+  },
+  berserker: {
+    role: '狂暴者', behavior: '血量越低移动越快，濒死时极速冲墙。',
+    weaknesses: ['一击致命', '减速爆发'], counter: '保持高爆发别让它进残血，或用激光+导弹瞬间带走。',
+    firstSeen: 7, threat: 4,
+  },
+  summoner: {
+    role: '召唤者', behavior: '周期召唤快速僵尸加入战场，数量失控会崩盘。',
+    weaknesses: ['优先击杀', '范围清场'], counter: '与治愈者同列为"必须先杀"，用爆炸弹连锁清理召唤物并削本体。',
+    firstSeen: 8, threat: 5,
+  },
+};
 
 // 远程攻击僵尸类型
 export const RANGED_ZOMBIE_TYPES: Set<string> = new Set(['spitter']);

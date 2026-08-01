@@ -84,6 +84,11 @@ export function createButton(
       draw(color);
       container.setScale(1);
     });
+    container.on('pointerupoutside', () => {
+      pressed = false;
+      draw(color);
+      container.setScale(1);
+    });
   }
   return container;
 }

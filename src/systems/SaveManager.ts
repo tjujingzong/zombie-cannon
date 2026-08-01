@@ -1,4 +1,4 @@
-import type { MetaUpgradeKey } from '../data/balance';
+import { META_UPGRADES, type MetaUpgradeKey } from '../data/balance';
 
 // 存档数据结构
 export interface SaveData {
@@ -36,14 +36,24 @@ class SaveManagerImpl {
     try {
       const raw = localStorage.getItem(SAVE_KEY);
       if (!raw) return defaultSave();
-      const parsed = JSON.parse(raw) as Partial<SaveData>;
-      // 与默认值合并，容忍旧版本缺字段
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
       const def = defaultSave();
+      const num = (v: unknown, fallback: number): number =>
+        typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+      const rec = (v: unknown): Record<string, unknown> =>
+        typeof v === 'object' && v !== null && !Array.isArray(v)
+          ? (v as Record<string, unknown>)
+          : {};
+      const filterNum = (o: Record<string, unknown>): Record<number, number> =>
+        Object.fromEntries(
+          Object.entries(o).filter(([, v]) => typeof v === 'number' && Number.isFinite(v)),
+        ) as Record<number, number>;
       return {
-        ...def,
-        ...parsed,
-        stars: { ...def.stars, ...(parsed.stars ?? {}) },
-        meta: { ...def.meta, ...(parsed.meta ?? {}) },
+        version: num(parsed.version, def.version),
+        coins: num(parsed.coins, def.coins),
+        unlockedLevel: num(parsed.unlockedLevel, def.unlockedLevel),
+        stars: { ...def.stars, ...filterNum(rec(parsed.stars)) },
+        meta: { ...def.meta, ...filterNum(rec(parsed.meta)) as Record<MetaUpgradeKey, number> },
       };
     } catch {
       return defaultSave();
@@ -63,11 +73,13 @@ class SaveManagerImpl {
   }
 
   addCoins(amount: number): void {
-    this.data.coins = Math.max(0, this.data.coins + amount);
+    if (!Number.isFinite(amount) || amount < 0) return;
+    this.data.coins += amount;
     this.save();
   }
 
   spendCoins(amount: number): boolean {
+    if (!Number.isFinite(amount) || amount < 0) return false;
     if (this.data.coins < amount) return false;
     this.data.coins -= amount;
     this.save();
@@ -84,7 +96,8 @@ class SaveManagerImpl {
 
   // 通关结算：更新星级与解锁进度
   recordLevelClear(levelId: number, stars: number, totalLevels: number): void {
-    this.data.stars[levelId] = Math.max(this.getStars(levelId), stars);
+    const clamped = Math.min(3, Math.max(0, Math.floor(stars)));
+    this.data.stars[levelId] = Math.max(this.getStars(levelId), clamped);
     if (levelId >= this.data.unlockedLevel && levelId < totalLevels) {
       this.data.unlockedLevel = levelId + 1;
     }
@@ -96,6 +109,7 @@ class SaveManagerImpl {
   }
 
   upgradeMeta(key: MetaUpgradeKey): void {
+    if (this.getMetaLevel(key) >= META_UPGRADES[key].max) return;
     this.data.meta[key] = this.getMetaLevel(key) + 1;
     this.save();
   }

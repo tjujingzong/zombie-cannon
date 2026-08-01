@@ -1,16 +1,17 @@
 import Phaser from 'phaser';
-import { CANNON_RANGE, CANNON_Y, GAME_WIDTH } from '../data/balance';
+import { CANNON_Y, GAME_WIDTH } from '../data/balance';
+import { AudioSystem } from '../systems/AudioSystem';
 import type { SkillSystem } from '../systems/SkillSystem';
 import type { Zombie } from './Zombie';
 
 /**
- * 炮台：自动索敌最近僵尸开火；玩家按住屏幕时优先朝指针方向射击
+ * 炮台：由玩家用鼠标/触摸控制方向，按射速自动开火；不自动索敌
  */
 export class Cannon extends Phaser.GameObjects.Container {
   private barrel: Phaser.GameObjects.Image;
   private base: Phaser.GameObjects.Image;
   private fireCooldown = 0;
-  private manualAngle: number | null = null;
+  private aimAngle = -Math.PI / 2;
   private skills: SkillSystem;
 
   /** 开火回调 */
@@ -29,43 +30,16 @@ export class Cannon extends Phaser.GameObjects.Container {
 
   setManualAim(worldX: number, worldY: number): void {
     if (worldY > this.y - 30) worldY = this.y - 30;
-    this.manualAngle = Phaser.Math.Angle.Between(this.x, this.y, worldX, worldY);
-  }
-
-  clearManualAim(): void {
-    this.manualAngle = null;
+    this.aimAngle = Phaser.Math.Angle.Between(this.x, this.y, worldX, worldY);
   }
 
   update(dt: number, zombies: Zombie[]): void {
-    let targetAngle = -Math.PI / 2;
-    let hasTarget = false;
-
-    if (this.manualAngle !== null) {
-      targetAngle = this.manualAngle;
-      hasTarget = true;
-    } else {
-      let nearest: Zombie | null = null;
-      let nearestDist = CANNON_RANGE;
-      for (const z of zombies) {
-        if (!z.active || z.hp <= 0) continue;
-        const d = Phaser.Math.Distance.Between(this.x, this.y, z.x, z.y);
-        if (d < nearestDist) {
-          nearestDist = d;
-          nearest = z;
-        }
-      }
-      if (nearest) {
-        targetAngle = Phaser.Math.Angle.Between(this.x, this.y, nearest.x, nearest.y);
-        hasTarget = true;
-      }
-    }
-
-    this.barrel.setRotation(targetAngle + Math.PI / 2);
+    this.barrel.setRotation(this.aimAngle + Math.PI / 2);
 
     this.fireCooldown -= dt;
-    if (hasTarget && this.fireCooldown <= 0) {
+    if (zombies.length > 0 && this.fireCooldown <= 0) {
       this.fireCooldown = 1 / this.skills.fireRate;
-      this.fireVolley(targetAngle);
+      this.fireVolley(this.aimAngle);
     }
   }
 
@@ -79,9 +53,18 @@ export class Cannon extends Phaser.GameObjects.Container {
       const mx = this.x + Math.cos(a) * muzzleLen;
       const my = this.y + Math.sin(a) * muzzleLen;
       this.onFire(mx, my, a);
+      // 枪口闪光
+      const flash = this.scene.add.image(mx, my, 'muzzle_flash').setDepth(11).setScale(1.2);
+      this.scene.tweens.add({
+        targets: flash, scale: 2.2, alpha: 0, duration: 90, ease: 'Cubic.Out',
+        onComplete: () => flash.destroy(),
+      });
     }
+    // 后坐力
     this.scene.tweens.add({
       targets: this.barrel, scaleY: 0.86, duration: 45, yoyo: true,
     });
+    // 射击音效（多管时音调略高）
+    AudioSystem.play('shoot', { volume: Math.min(1, 0.7 + count * 0.1) });
   }
 }

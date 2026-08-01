@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH } from './data/balance';
 import { BootScene } from './scenes/BootScene';
+import { CodexScene } from './scenes/CodexScene';
 import { GameScene } from './scenes/GameScene';
 import { LevelSelectScene } from './scenes/LevelSelectScene';
 import { MenuScene } from './scenes/MenuScene';
@@ -24,7 +25,7 @@ const game = new Phaser.Game({
       debug: false,
     },
   },
-  scene: [BootScene, MenuScene, LevelSelectScene, GameScene, UIScene, ResultScene],
+  scene: [BootScene, MenuScene, LevelSelectScene, CodexScene, GameScene, UIScene, ResultScene],
 });
 
 // 调试入口（控制台可访问 game 实例）

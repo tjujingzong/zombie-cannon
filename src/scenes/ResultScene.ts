@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH } from '../data/balance';
 import { LEVELS } from '../data/levels';
+import { AudioSystem } from '../systems/AudioSystem';
 import { SaveManager } from '../systems/SaveManager';
 import { createButton, textStyle, titleStyle } from '../ui/helpers';
 
@@ -26,6 +27,10 @@ export class ResultScene extends Phaser.Scene {
   }
 
   create(): void {
+    if (!this.data_) {
+      this.scene.start('LevelSelect');
+      return;
+    }
     const cx = GAME_WIDTH / 2;
     const { victory, stars, coinsEarned, levelId, maxStreak = 0, totalKills = 0, synergies = [] } = this.data_;
 
@@ -85,21 +90,29 @@ export class ResultScene extends Phaser.Scene {
     // 按钮
     const hasNext = victory && levelId < LEVELS.length;
     let y = Math.max(statY + 20, 840);
+    // 进入结算页时恢复菜单 BGM
+    this.time.delayedCall(1200, () => AudioSystem.startBGM('menu'));
+
     if (hasNext) {
-      createButton(this, cx, y, '下一关', () => this.scene.start('Game', { levelId: levelId + 1 }), {
-        width: 360, height: 96, fontSize: 34,
-      });
+      createButton(this, cx, y, '下一关', () => {
+        AudioSystem.play('ui_click');
+        this.scene.start('Game', { levelId: levelId + 1 });
+      }, { width: 360, height: 96, fontSize: 34 });
       y += 120;
     }
     createButton(
       this, cx, y,
       victory ? '再次挑战' : '重新挑战',
-      () => this.scene.start('Game', { levelId }),
+      () => {
+        AudioSystem.play('ui_click');
+        this.scene.start('Game', { levelId });
+      },
       { width: 360, height: 96, fontSize: 34, color: hasNext ? 0x455a64 : 0x2e7d32, colorDown: hasNext ? 0x37474f : 0x1b5e20 }
     );
     y += 120;
-    createButton(this, cx, y, '返回选关', () => this.scene.start('LevelSelect'), {
-      width: 360, height: 96, fontSize: 34, color: 0x455a64, colorDown: 0x37474f,
-    });
+    createButton(this, cx, y, '返回选关', () => {
+      AudioSystem.play('ui_click');
+      this.scene.start('LevelSelect');
+    }, { width: 360, height: 96, fontSize: 34, color: 0x455a64, colorDown: 0x37474f });
   }
 }

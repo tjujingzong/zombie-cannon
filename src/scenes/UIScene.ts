@@ -1,10 +1,11 @@
 import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH } from '../data/balance';
+import { AudioSystem } from '../systems/AudioSystem';
 import type { GameScene } from './GameScene';
 import { FONT, createButton, createOverlay, textStyle } from '../ui/helpers';
 
 /**
- * HUD：金币 / 波次 / 墙血条 / 连杀 / 技能图标 / 暂停
+ * HUD：金币 / 波次 / 墙血条 / 连杀 / 技能图标 / 暂停 / 静音
  */
 export class UIScene extends Phaser.Scene {
   private game_!: GameScene;
@@ -16,9 +17,11 @@ export class UIScene extends Phaser.Scene {
   private streakText!: Phaser.GameObjects.Text;
   private killText!: Phaser.GameObjects.Text;
   private comboText!: Phaser.GameObjects.Text;
+  private bossWaveText!: Phaser.GameObjects.Text;
   private synergyIcons: Phaser.GameObjects.Text[] = [];
   private pendingIcons: Phaser.GameObjects.Text[] = [];
   private pauseGroup: Phaser.GameObjects.GameObject[] = [];
+  private lastSynergyHash = '';
 
   constructor() {
     super('UI');
@@ -37,31 +40,39 @@ export class UIScene extends Phaser.Scene {
     this.levelText = this.add
       .text(GAME_WIDTH / 2, 44, '', { fontFamily: FONT, fontSize: '26px', fontStyle: 'bold', color: '#ffffff' })
       .setOrigin(0.5);
-    this.waveText = this.add.text(GAME_WIDTH - 170, 44, '', textStyle(26, '#8fbf8f')).setOrigin(0.5);
+    this.waveText = this.add.text(GAME_WIDTH - 200, 44, '', textStyle(26, '#8fbf8f')).setOrigin(1, 0.5);
 
+    // 静音按钮（左上角，暂停按钮旁）
+    this.createMuteButton(GAME_WIDTH - 130, 44);
     // 暂停按钮
     createButton(this, GAME_WIDTH - 60, 44, 'II', () => this.showPause(), {
       width: 64, height: 52, color: 0x455a64, colorDown: 0x37474f, fontSize: 24,
     });
 
+    // Boss 波提示（顶部居中下方）
+    this.bossWaveText = this.add.text(GAME_WIDTH / 2, 90, '⚠ BOSS 波 ⚠', {
+      fontFamily: FONT, fontSize: '24px', fontStyle: 'bold', color: '#ff1744',
+      stroke: '#1a2530', strokeThickness: 4,
+    }).setOrigin(0.5).setAlpha(0);
+
     // 连杀显示
     this.streakText = this.add
-      .text(GAME_WIDTH / 2, 90, '', {
-        fontFamily: FONT, fontSize: '22px', fontStyle: 'bold', color: '#ffd54a',
-        stroke: '#1a2530', strokeThickness: 3,
+      .text(GAME_WIDTH / 2, 130, '', {
+        fontFamily: FONT, fontSize: '26px', fontStyle: 'bold', color: '#ffd54a',
+        stroke: '#1a2530', strokeThickness: 4,
       })
       .setOrigin(0.5).setAlpha(0);
 
     // 连击显示
     this.comboText = this.add
-      .text(GAME_WIDTH - 80, 120, '', {
-        fontFamily: FONT, fontSize: '20px', fontStyle: 'bold', color: '#4fc3f7',
+      .text(GAME_WIDTH - 80, 150, '', {
+        fontFamily: FONT, fontSize: '22px', fontStyle: 'bold', color: '#4fc3f7',
         stroke: '#1a2530', strokeThickness: 3,
       })
       .setOrigin(0.5).setAlpha(0);
 
     // 击杀计数
-    this.killText = this.add.text(GAME_WIDTH - 80, 150, '', textStyle(18, '#8a9aa8')).setOrigin(0.5);
+    this.killText = this.add.text(GAME_WIDTH - 80, 180, '', textStyle(18, '#8a9aa8')).setOrigin(0.5);
 
     // 墙血条 + 护盾条
     this.wallBar = this.add.graphics();
@@ -69,6 +80,27 @@ export class UIScene extends Phaser.Scene {
 
     // 底部技能图标区
     this.updateSynergyDisplay();
+  }
+
+  private createMuteButton(x: number, y: number): Phaser.GameObjects.Container {
+    const w = 56, h = 48;
+    const g = this.add.graphics();
+    const draw = (muted: boolean) => {
+      g.clear();
+      g.fillStyle(0x000000, 0.35).fillRoundedRect(-w / 2 + 2, -h / 2 + 3, w, h, 10);
+      g.fillStyle(muted ? 0x4a5560 : 0x455a64, 1).fillRoundedRect(-w / 2, -h / 2, w, h, 10);
+    };
+    draw(AudioSystem.isMuted);
+    const txt = this.add.text(0, 0, AudioSystem.isMuted ? '🔇' : '🔊', { fontSize: '22px' }).setOrigin(0.5);
+    const c = this.add.container(x, y, [g, txt]).setSize(w, h).setInteractive({ useHandCursor: true }).setDepth(20);
+    c.on('pointerup', () => {
+      AudioSystem.toggleMuted();
+      AudioSystem.refreshMuteState();
+      draw(AudioSystem.isMuted);
+      txt.setText(AudioSystem.isMuted ? '🔇' : '🔊');
+    });
+    (c as Phaser.GameObjects.Container & { _draw?: (m: boolean) => void })._draw = draw;
+    return c;
   }
 
   private showPause(): void {
@@ -142,6 +174,14 @@ export class UIScene extends Phaser.Scene {
     this.levelText.setText(this.game_.levelName);
     this.waveText.setText(`波次 ${this.game_.waveLabel}`);
 
+    // Boss 波提示
+    if (this.game_.isBossWave) {
+      const pulse = 0.6 + Math.sin(this.time.now * 0.006) * 0.4;
+      this.bossWaveText.setAlpha(pulse);
+    } else {
+      this.bossWaveText.setAlpha(0);
+    }
+
     // 连杀
     const streak = this.game_.skills?.killStreak ?? 0;
     if (streak >= 5) {
@@ -188,7 +228,14 @@ export class UIScene extends Phaser.Scene {
       this.shieldBar.fillStyle(0x42a5f5, 0.7).fillRoundedRect(42, y - 6, (w - 4) * shieldRatio, 4, 2);
     }
 
-    // 刷新组合技显示
-    this.updateSynergyDisplay();
+    // 刷新组合技显示（仅在组合技/待激活列表变化时重建，避免每帧 GC）
+    const synHash = JSON.stringify({
+      active: this.game_.skills?.getActiveSynergies().map((s) => s.key) ?? [],
+      pending: this.game_.skills?.getPendingSynergies().map((p) => p.synergy.key) ?? [],
+    });
+    if (synHash !== this.lastSynergyHash) {
+      this.lastSynergyHash = synHash;
+      this.updateSynergyDisplay();
+    }
   }
 }

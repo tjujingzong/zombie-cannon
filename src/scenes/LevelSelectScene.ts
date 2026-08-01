@@ -6,16 +6,22 @@ import {
   MetaUpgradeKey,
   metaUpgradeCost,
 } from '../data/balance';
-import { LEVELS } from '../data/levels';
+import { LEVELS, LEVEL_ENGINE_INFO, TOTAL_LEVELS } from '../data/levels';
+import { AudioSystem } from '../systems/AudioSystem';
 import { SaveManager } from '../systems/SaveManager';
 import { createButton, FONT, textStyle, titleStyle } from '../ui/helpers';
 
 /**
- * 关卡选择 + 局外养成商店
+ * 关卡选择 + 局外养成商店（50 关可滚动，按章节分段，Boss 关标记）
  */
 export class LevelSelectScene extends Phaser.Scene {
   private coinText!: Phaser.GameObjects.Text;
   private shopRows: Partial<Record<MetaUpgradeKey, () => void>> = {};
+  private contentContainer!: Phaser.GameObjects.Container;
+  private contentHeight = 0;
+  private scrollY = 0;
+  private scrollHitbox!: Phaser.GameObjects.Zone;
+  private scrollbar!: Phaser.GameObjects.Graphics;
 
   constructor() {
     super('LevelSelect');
@@ -33,71 +39,131 @@ export class LevelSelectScene extends Phaser.Scene {
     this.add.image(48, 70, 'coin').setScale(1.1);
     this.coinText = this.add.text(72, 70, `${SaveManager.coins}`, textStyle(30, '#ffd54a')).setOrigin(0, 0.5);
 
-    createButton(this, GAME_WIDTH - 90, 70, '返回', () => this.scene.start('Menu'), {
-      width: 130,
-      height: 64,
-      color: 0x455a64,
-      colorDown: 0x37474f,
-      fontSize: 26,
-    });
+    createButton(this, 60, 70, '返回', () => {
+      AudioSystem.play('ui_click');
+      AudioSystem.startBGM('menu');
+      this.scene.start('Menu');
+    }, { width: 100, height: 52, fontSize: 22, color: 0x455a64, colorDown: 0x37474f });
 
-    // 关卡网格：3 列
-    const cols = 3;
-    const cellW = 210;
-    const cellH = 150;
-    const startX = cx - cellW * (cols - 1) / 2;
-    const startY = 220;
-    LEVELS.forEach((lv, i) => {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      this.createLevelCell(startX + col * cellW, startY + row * cellH, lv.id, lv.name);
-    });
+    // 滚动容器：关卡网格 + 商店
+    this.contentContainer = this.add.container(0, 130).setDepth(5);
+
+    const cols = 5;
+    const cellW = 130;
+    const cellH = 130;
+    const startX = (GAME_WIDTH - cellW * (cols - 1)) / 2;
+
+    // 按章节分组渲染
+    const chapterSize = LEVEL_ENGINE_INFO.chapterSize;
+    let y = 20;
+
+    for (let chapter = 0; chapter < Math.ceil(TOTAL_LEVELS / chapterSize); chapter++) {
+      const startId = chapter * chapterSize + 1;
+      const endId = Math.min(startId + chapterSize - 1, TOTAL_LEVELS);
+      if (startId > TOTAL_LEVELS) break;
+
+      // 章节标题条
+      const headerG = this.add.graphics();
+      headerG.fillStyle(0x2a3b2c, 0.7).fillRoundedRect(20, y, GAME_WIDTH - 40, 40, 10);
+      const headerTxt = this.add.text(40, y + 20, `第 ${chapter + 1} 章`, {
+        fontFamily: FONT, fontSize: '22px', fontStyle: 'bold', color: '#ffd54a',
+      }).setOrigin(0, 0.5);
+      this.contentContainer.add([headerG, headerTxt]);
+      y += 56;
+
+      // 该章节的关卡
+      for (let id = startId; id <= endId; id++) {
+        const lv = LEVELS.find((l) => l.id === id);
+        if (!lv) continue;
+        const idx = id - startId;
+        const col = idx % cols;
+        const row = Math.floor(idx / cols);
+        this.createLevelCell(startX + col * cellW, y + row * cellH, lv.id, lv.name, lv.bossLevel);
+      }
+      const rows = Math.ceil((endId - startId + 1) / cols);
+      y += rows * cellH + 20;
+    }
 
     // 养成商店
-    const shopY = startY + Math.ceil(LEVELS.length / cols) * cellH + 30;
-    this.add.text(cx, shopY, '—— 永久强化 ——', textStyle(30, '#8fbf8f')).setOrigin(0.5);
+    this.contentContainer.add(this.add.text(cx, y + 10, '—— 永久强化 ——', textStyle(30, '#8fbf8f')).setOrigin(0.5, 0));
+    y += 60;
     (Object.keys(META_UPGRADES) as MetaUpgradeKey[]).forEach((key, i) => {
-      this.createShopRow(key, shopY + 60 + i * 108);
+      this.createShopRow(key, y + i * 108);
     });
+    y += Object.keys(META_UPGRADES).length * 108 + 40;
+
+    this.contentHeight = y;
+
+    // 滚动 hitbox（覆盖关卡 + 商店区）
+    this.scrollbar = this.add.graphics().setDepth(8);
+    const viewTop = 130;
+    const viewH = GAME_HEIGHT - viewTop - 20;
+    this.scrollHitbox = this.add.zone(GAME_WIDTH / 2, viewTop + viewH / 2, GAME_WIDTH, viewH)
+      .setInteractive({ useHandCursor: true });
+    this.scrollHitbox.on('wheel', (_pointer: Phaser.Input.Pointer, _deltaX: number, _deltaY: number, delta: number) => this.scrollBy(delta > 0 ? 90 : -90));
+    let dragStartY = 0;
+    let dragStartScroll = 0;
+    this.scrollHitbox.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      dragStartY = p.y; dragStartScroll = this.scrollY;
+    });
+    this.scrollHitbox.on('pointermove', (p: Phaser.Input.Pointer) => {
+      if (p.isDown) this.setScroll(dragStartScroll - (p.y - dragStartY));
+    });
+    this.drawScrollbar();
   }
 
-  private createLevelCell(x: number, y: number, id: number, name: string): void {
+  private createLevelCell(x: number, y: number, id: number, name: string, isBoss: boolean): void {
     const unlocked = id <= SaveManager.unlockedLevel;
     const stars = SaveManager.getStars(id);
-    const w = 190;
-    const h = 130;
+    const w = 116, h = 116;
 
     const g = this.add.graphics();
-    g.fillStyle(0x000000, 0.3).fillRoundedRect(x - w / 2 + 3, y - h / 2 + 4, w, h, 16);
-    g.fillStyle(unlocked ? 0x2b4a33 : 0x2a3138, 1).fillRoundedRect(x - w / 2, y - h / 2, w, h, 16);
+    g.fillStyle(0x000000, 0.3).fillRoundedRect(x - w / 2 + 3, y - h / 2 + 4, w, h, 14);
+    let bgC: number;
+    if (isBoss && unlocked) bgC = 0x4a1a2a;
+    else if (unlocked) bgC = 0x2b4a33;
+    else bgC = 0x2a3138;
+    g.fillStyle(bgC, 1).fillRoundedRect(x - w / 2, y - h / 2, w, h, 14);
     if (unlocked) {
-      g.lineStyle(3, 0x4caf50, 0.8).strokeRoundedRect(x - w / 2, y - h / 2, w, h, 16);
+      g.lineStyle(3, isBoss ? 0xe74c3c : 0x4caf50, 0.85).strokeRoundedRect(x - w / 2, y - h / 2, w, h, 14);
     }
 
     if (unlocked) {
-      this.add
-        .text(x, y - 34, `第 ${id} 关`, {
-          fontFamily: FONT, fontSize: '30px', fontStyle: 'bold', color: '#ffffff',
-        })
-        .setOrigin(0.5);
-      this.add.text(x, y + 2, name, textStyle(20, '#a8c8a8')).setOrigin(0.5);
+      // Boss 关标记
+      if (isBoss) {
+        this.contentContainer.add(this.add.image(x, y - 36, 'boss_crown').setScale(0.7));
+      }
+      this.contentContainer.add(
+        this.add.text(x, y - (isBoss ? 6 : 14), `${id}`, {
+          fontFamily: FONT, fontSize: isBoss ? '24px' : '30px', fontStyle: 'bold',
+          color: isBoss ? '#ffd54a' : '#ffffff',
+        }).setOrigin(0.5)
+      );
+      // 名称（截短显示）
+      const shortName = name.length > 5 ? name.slice(0, 4) + '…' : name;
+      this.contentContainer.add(this.add.text(x, y + 18, shortName, textStyle(13, '#a8c8a8')).setOrigin(0.5));
       // 星级
       for (let s = 0; s < 3; s++) {
-        this.add
-          .image(x - 34 + s * 34, y + 40, s < stars ? 'star' : 'star_empty')
-          .setScale(0.42);
+        this.contentContainer.add(
+          this.add.image(x - 24 + s * 24, y + 40, s < stars ? 'star' : 'star_empty').setScale(0.32)
+        );
       }
       const zone = this.add.zone(x, y, w, h).setInteractive({ useHandCursor: true });
       let pressed = false;
-      zone.on('pointerdown', () => (pressed = true));
-      zone.on('pointerout', () => (pressed = false));
+      zone.on('pointerdown', () => { pressed = true; });
+      zone.on('pointerout', () => { pressed = false; });
       zone.on('pointerup', () => {
-        if (pressed) this.scene.start('Game', { levelId: id });
+        if (pressed) {
+          AudioSystem.play('ui_click');
+          this.scene.start('Game', { levelId: id });
+        }
       });
+      this.contentContainer.add(zone);
     } else {
-      this.add.text(x, y - 10, '🔒', { fontSize: '44px' }).setOrigin(0.5);
-      this.add.text(x, y + 38, `第 ${id} 关`, textStyle(20, '#5a6570')).setOrigin(0.5);
+      this.contentContainer.add(this.add.text(x, y - 8, '🔒', { fontSize: '36px' }).setOrigin(0.5));
+      this.contentContainer.add(this.add.text(x, y + 36, `${id}`, textStyle(16, '#5a6570')).setOrigin(0.5));
     }
+    this.contentContainer.add(g);
   }
 
   private createShopRow(key: MetaUpgradeKey, y: number): void {
@@ -110,9 +176,9 @@ export class LevelSelectScene extends Phaser.Scene {
     g.fillStyle(0x1b2733, 1).fillRoundedRect(x0, y - h / 2, w, h, 14);
 
     const nameText = this.add.text(x0 + 24, y - 20, '', {
-      fontFamily: FONT, fontSize: '28px', fontStyle: 'bold', color: '#ffffff',
+      fontFamily: FONT, fontSize: '26px', fontStyle: 'bold', color: '#ffffff',
     });
-    const descText = this.add.text(x0 + 24, y + 14, cfg.desc, textStyle(20, '#8a9aa8'));
+    const descText = this.add.text(x0 + 24, y + 14, cfg.desc, textStyle(18, '#8a9aa8'));
 
     let btn: Phaser.GameObjects.Container | null = null;
     const refresh = () => {
@@ -122,8 +188,8 @@ export class LevelSelectScene extends Phaser.Scene {
       descText.setText(cfg.desc);
       btn?.destroy();
       if (maxed) {
-        btn = createButton(this, x0 + w - 110, y, '已满级', () => {}, {
-          width: 170, height: 64, fontSize: 24, disabled: true,
+        btn = createButton(this, x0 + w - 100, y, '已满级', () => {}, {
+          width: 160, height: 60, fontSize: 22, disabled: true,
         });
         return;
       }
@@ -131,28 +197,54 @@ export class LevelSelectScene extends Phaser.Scene {
       const affordable = SaveManager.coins >= cost;
       btn = createButton(
         this,
-        x0 + w - 110,
+        x0 + w - 100,
         y,
-        `${cost} 金币`,
+        `${cost} 金`,
         () => {
           if (SaveManager.spendCoins(cost)) {
             SaveManager.upgradeMeta(key);
             this.coinText.setText(`${SaveManager.coins}`);
-            // 刷新所有商店行的按钮（金币变化影响可购买态）
+            AudioSystem.play('upgrade');
             Object.values(this.shopRows).forEach((fn) => fn && fn());
           }
         },
         {
-          width: 170,
-          height: 64,
-          fontSize: 24,
+          width: 160, height: 60, fontSize: 22,
           color: affordable ? 0xb8860b : 0x4a5560,
-          colorDown: 0x8a6508,
-          disabled: !affordable,
+          colorDown: 0x8a6508, disabled: !affordable,
         }
       );
     };
     this.shopRows[key] = refresh;
     refresh();
+    this.contentContainer.add([g, nameText, descText]);
+  }
+
+  // ── 滚动 ──
+  private setScroll(target: number): void {
+    const viewTop = 130;
+    const viewH = GAME_HEIGHT - viewTop - 20;
+    const maxScroll = Math.max(0, this.contentHeight - viewH);
+    this.scrollY = Phaser.Math.Clamp(target, 0, maxScroll);
+    this.contentContainer.setY(viewTop - this.scrollY);
+    this.drawScrollbar();
+  }
+
+  private scrollBy(delta: number): void {
+    this.setScroll(this.scrollY + delta);
+  }
+
+  private drawScrollbar(): void {
+    this.scrollbar.clear();
+    const viewTop = 130;
+    const viewH = GAME_HEIGHT - viewTop - 20;
+    if (this.contentHeight <= viewH) return;
+    const trackX = GAME_WIDTH - 8;
+    this.scrollbar.fillStyle(0xffffff, 0.08).fillRoundedRect(trackX, viewTop, 4, viewH, 2);
+    const ratio = viewH / this.contentHeight;
+    const thumbH = Math.max(40, viewH * ratio);
+    const maxScroll = this.contentHeight - viewH;
+    const thumbY = viewTop + (maxScroll > 0 ? (this.scrollY / maxScroll) * (viewH - thumbH) : 0);
+    this.scrollbar.fillStyle(0xffd54a, 0.6).fillRoundedRect(trackX, thumbY, 4, thumbH, 2);
   }
 }

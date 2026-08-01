@@ -23,8 +23,6 @@ export class WaveManager {
   state: WaveState = 'idle';
 
   onSpawn: (type: ZombieTypeKey) => void = () => {};
-  /** 一波全部刷完（不代表清场） */
-  onWaveSpawned: () => void = () => {};
 
   constructor(level: LevelConfig) {
     this.level = level;
@@ -66,16 +64,17 @@ export class WaveManager {
       this.waveTime += dt;
       let allDone = true;
       for (const task of this.tasks) {
-        while (task.remaining > 0 && this.waveTime >= task.nextAt) {
+        let spawnedThisFrame = 0;
+        while (task.remaining > 0 && this.waveTime >= task.nextAt && spawnedThisFrame < 5) {
           task.remaining--;
           task.nextAt += task.interval;
           this.onSpawn(task.type);
+          spawnedThisFrame++;
         }
         if (task.remaining > 0) allDone = false;
       }
       if (allDone) {
         this.state = 'clearing';
-        this.onWaveSpawned();
       }
     } else if (this.state === 'clearing') {
       // 等待场上清空，由 GameScene 检查后调用 startNextWave 或结算
