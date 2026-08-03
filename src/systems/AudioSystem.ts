@@ -191,27 +191,47 @@ class AudioSystemImpl {
 
   // 各 SFX 实现
   private sfxShoot(t: number, vol: number): void {
-    const o = this.osc('square', 880, t, 0.08, 0.18 * vol, this.sfxGain!);
-    o.frequency.exponentialRampToValueAtTime(220, t + 0.08);
-    // 短促噪声脉冲模拟枪口
-    this.noise(t, 0.05, 0.12 * vol, 'bandpass', 2200, 1);
+    // 主射击音：方波从高频快速下滑，模拟枪声
+    const o1 = this.osc('square', 1200, t, 0.12, 0.22 * vol, this.sfxGain!);
+    o1.frequency.exponentialRampToValueAtTime(180, t + 0.12);
+    // 低频冲击层
+    const o2 = this.osc('sine', 150, t, 0.15, 0.18 * vol, this.sfxGain!);
+    o2.frequency.exponentialRampToValueAtTime(60, t + 0.15);
+    // 枪口噪声层（更宽的带通）
+    this.noise(t, 0.08, 0.15 * vol, 'bandpass', 3000, 1.5);
+    // 高频尾音
+    this.noise(t + 0.02, 0.06, 0.08 * vol, 'highpass', 5000, 1);
   }
   private sfxHit(t: number, vol: number): void {
-    this.noise(t, 0.06, 0.14 * vol, 'bandpass', 1800, 2);
-    this.osc('sine', 320, t, 0.06, 0.1 * vol, this.sfxGain!);
+    // 命中冲击：低频 thump + 中频 crack
+    this.osc('sine', 200, t, 0.1, 0.16 * vol, this.sfxGain!).frequency.exponentialRampToValueAtTime(80, t + 0.1);
+    this.noise(t, 0.08, 0.18 * vol, 'bandpass', 2200, 2);
+    // 高频碎片音
+    this.noise(t + 0.02, 0.05, 0.1 * vol, 'highpass', 4000, 1);
   }
   private sfxCrit(t: number, vol: number): void {
-    // 双层 + 鸣响
-    this.osc('square', 1400, t, 0.05, 0.16 * vol, this.sfxGain!).frequency.exponentialRampToValueAtTime(560, t + 0.05);
-    this.noise(t, 0.08, 0.18 * vol, 'bandpass', 3500, 3);
-    this.osc('triangle', 880, t + 0.02, 0.18, 0.12 * vol, this.sfxGain!);
+    // 暴击冲击：多层叠加
+    // 低频爆炸层
+    this.osc('sine', 120, t, 0.2, 0.25 * vol, this.sfxGain!).frequency.exponentialRampToValueAtTime(40, t + 0.2);
+    // 中频方波下滑
+    this.osc('square', 1800, t, 0.08, 0.2 * vol, this.sfxGain!).frequency.exponentialRampToValueAtTime(400, t + 0.08);
+    // 高频噪声爆发
+    this.noise(t, 0.1, 0.22 * vol, 'bandpass', 4000, 2);
+    // 暴击鸣响尾音
+    this.osc('triangle', 1200, t + 0.05, 0.25, 0.15 * vol, this.sfxGain!);
+    // 高频碎片
+    this.noise(t + 0.03, 0.08, 0.12 * vol, 'highpass', 6000, 1);
   }
   private sfxKill(t: number, vol: number): void {
-    // 低 thump + 短促高 ping
-    const o = this.osc('sine', 180, t, 0.18, 0.22 * vol, this.sfxGain!);
-    o.frequency.exponentialRampToValueAtTime(60, t + 0.18);
-    this.noise(t, 0.1, 0.14 * vol, 'bandpass', 2400, 1.5);
-    this.osc('triangle', 1320, t, 0.08, 0.08 * vol, this.sfxGain!);
+    // 击杀冲击：低频爆炸 + 高频碎片
+    const o1 = this.osc('sine', 150, t, 0.25, 0.28 * vol, this.sfxGain!);
+    o1.frequency.exponentialRampToValueAtTime(40, t + 0.25);
+    // 中频 crunch
+    this.osc('square', 600, t, 0.1, 0.15 * vol, this.sfxGain!).frequency.exponentialRampToValueAtTime(200, t + 0.1);
+    // 高频噪声爆发
+    this.noise(t, 0.12, 0.2 * vol, 'bandpass', 3000, 2);
+    // 击杀尾音 ping
+    this.osc('triangle', 1600, t + 0.05, 0.15, 0.1 * vol, this.sfxGain!);
   }
   private sfxExplosion(t: number, vol: number): void {
     // 低频 boom + 宽带噪声

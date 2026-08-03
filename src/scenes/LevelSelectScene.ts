@@ -73,6 +73,7 @@ export class LevelSelectScene extends Phaser.Scene {
       headerG.fillStyle(0x2a3b2c, 0.7).fillRoundedRect(20, y, GAME_WIDTH - 40, 40, 10);
       const headerTxt = this.add.text(40, y + 20, `第 ${chapter + 1} 章`, {
         fontFamily: FONT, fontSize: '22px', fontStyle: 'bold', color: '#ffd54a',
+        stroke: '#000000', strokeThickness: 2,
       }).setOrigin(0, 0.5);
       this.contentContainer.add([headerG, headerTxt]);
       y += 56;
@@ -91,7 +92,10 @@ export class LevelSelectScene extends Phaser.Scene {
     }
 
     // 养成商店
-    this.contentContainer.add(this.add.text(cx, y + 10, '—— 永久强化 ——', textStyle(30, '#8fbf8f')).setOrigin(0.5, 0));
+    this.contentContainer.add(this.add.text(cx, y + 10, '—— 永久强化 ——', {
+      ...textStyle(30, '#ffffff'),
+      stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5, 0));
     y += 60;
     (Object.keys(META_UPGRADES) as MetaUpgradeKey[]).forEach((key, i) => {
       this.createShopRow(key, y + i * 108);
@@ -147,8 +151,9 @@ export class LevelSelectScene extends Phaser.Scene {
       );
       // 关卡题目（完整名称，自动换行最多两行）
       const nameTxt = this.add.text(x, y + 2, name, {
-        ...textStyle(14, '#a8c8a8'), fontStyle: 'bold',
+        ...textStyle(14, '#ffffff'), fontStyle: 'bold',
         align: 'center', wordWrap: { width: w - 8 },
+        stroke: '#000000', strokeThickness: 2,
       }).setOrigin(0.5);
       this.contentContainer.add(nameTxt);
       // 星级
@@ -170,7 +175,7 @@ export class LevelSelectScene extends Phaser.Scene {
       this.contentContainer.add(zone);
     } else {
       this.contentContainer.add(this.add.text(x, y - 12, '🔒', { fontSize: '36px' }).setOrigin(0.5));
-      this.contentContainer.add(this.add.text(x, y + 36, `${id}`, textStyle(16, '#5a6570')).setOrigin(0.5));
+      this.contentContainer.add(this.add.text(x, y + 36, `${id}`, textStyle(16, '#8a9aa8')).setOrigin(0.5));
     }
     this.contentContainer.add(g);
   }
