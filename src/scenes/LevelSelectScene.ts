@@ -45,12 +45,18 @@ export class LevelSelectScene extends Phaser.Scene {
       this.scene.start('Menu');
     }, { width: 100, height: 52, fontSize: 22, color: 0x455a64, colorDown: 0x37474f });
 
+    // 图鉴入口（右上角）
+    createButton(this, GAME_WIDTH - 60, 70, '图鉴', () => {
+      AudioSystem.play('ui_click');
+      this.scene.start('Codex', { returnTo: 'LevelSelect' });
+    }, { width: 110, height: 52, fontSize: 22, color: 0x6a3b8a, colorDown: 0x4a2b6a });
+
     // 滚动容器：关卡网格 + 商店
     this.contentContainer = this.add.container(0, 130).setDepth(5);
 
     const cols = 5;
     const cellW = 130;
-    const cellH = 130;
+    const cellH = 156;
     const startX = (GAME_WIDTH - cellW * (cols - 1)) / 2;
 
     // 按章节分组渲染
@@ -115,7 +121,7 @@ export class LevelSelectScene extends Phaser.Scene {
   private createLevelCell(x: number, y: number, id: number, name: string, isBoss: boolean): void {
     const unlocked = id <= SaveManager.unlockedLevel;
     const stars = SaveManager.getStars(id);
-    const w = 116, h = 116;
+    const w = 116, h = 142;
 
     const g = this.add.graphics();
     g.fillStyle(0x000000, 0.3).fillRoundedRect(x - w / 2 + 3, y - h / 2 + 4, w, h, 14);
@@ -131,21 +137,24 @@ export class LevelSelectScene extends Phaser.Scene {
     if (unlocked) {
       // Boss 关标记
       if (isBoss) {
-        this.contentContainer.add(this.add.image(x, y - 36, 'boss_crown').setScale(0.7));
+        this.contentContainer.add(this.add.image(x, y - h / 2 + 14, 'boss_crown').setScale(0.7));
       }
       this.contentContainer.add(
-        this.add.text(x, y - (isBoss ? 6 : 14), `${id}`, {
-          fontFamily: FONT, fontSize: isBoss ? '24px' : '30px', fontStyle: 'bold',
+        this.add.text(x, y - h / 2 + (isBoss ? 34 : 26), `${id}`, {
+          fontFamily: FONT, fontSize: isBoss ? '26px' : '30px', fontStyle: 'bold',
           color: isBoss ? '#ffd54a' : '#ffffff',
         }).setOrigin(0.5)
       );
-      // 名称（截短显示）
-      const shortName = name.length > 5 ? name.slice(0, 4) + '…' : name;
-      this.contentContainer.add(this.add.text(x, y + 18, shortName, textStyle(13, '#a8c8a8')).setOrigin(0.5));
+      // 关卡题目（完整名称，自动换行最多两行）
+      const nameTxt = this.add.text(x, y + 2, name, {
+        ...textStyle(14, '#a8c8a8'), fontStyle: 'bold',
+        align: 'center', wordWrap: { width: w - 8 },
+      }).setOrigin(0.5);
+      this.contentContainer.add(nameTxt);
       // 星级
       for (let s = 0; s < 3; s++) {
         this.contentContainer.add(
-          this.add.image(x - 24 + s * 24, y + 40, s < stars ? 'star' : 'star_empty').setScale(0.32)
+          this.add.image(x - 24 + s * 24, y + h / 2 - 18, s < stars ? 'star' : 'star_empty').setScale(0.32)
         );
       }
       const zone = this.add.zone(x, y, w, h).setInteractive({ useHandCursor: true });
@@ -160,7 +169,7 @@ export class LevelSelectScene extends Phaser.Scene {
       });
       this.contentContainer.add(zone);
     } else {
-      this.contentContainer.add(this.add.text(x, y - 8, '🔒', { fontSize: '36px' }).setOrigin(0.5));
+      this.contentContainer.add(this.add.text(x, y - 12, '🔒', { fontSize: '36px' }).setOrigin(0.5));
       this.contentContainer.add(this.add.text(x, y + 36, `${id}`, textStyle(16, '#5a6570')).setOrigin(0.5));
     }
     this.contentContainer.add(g);

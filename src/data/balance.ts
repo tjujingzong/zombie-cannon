@@ -139,6 +139,11 @@ export const EXPLOSION_DAMAGE = 15; // 爆炸对周围僵尸伤害
 export const KILL_STREAK_THRESHOLDS = [5, 15, 30, 50]; // 连杀阈值
 export const KILL_STREAK_BONUS = [0.1, 0.2, 0.35, 0.5]; // 对应伤害加成
 
+// ── 战前免费选技能 ──
+// 每关开局可免费挑选的技能数；同时按此倍率增加怪物数量以平衡难度
+export const PRE_GAME_FREE_SKILLS = 5;
+export const PRE_GAME_MONSTER_MULTIPLIER = 1.6;
+
 // ── 局外永久养成 ──
 export const META_UPGRADES = {
   damage: { name: '基础攻击', desc: '每级攻击 +8%', baseCost: 100, max: 20 },

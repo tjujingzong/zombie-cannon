@@ -20,12 +20,20 @@ export class WaveManager {
   private waveIndex = -1;
   private tasks: SpawnTask[] = [];
   private waveTime = 0;
+  /** 怪物数量倍率（用于战前免费选技能后的难度平衡） */
+  private monsterMultiplier: number;
   state: WaveState = 'idle';
 
   onSpawn: (type: ZombieTypeKey) => void = () => {};
 
-  constructor(level: LevelConfig) {
+  constructor(level: LevelConfig, monsterMultiplier = 1) {
     this.level = level;
+    this.monsterMultiplier = monsterMultiplier;
+  }
+
+  /** 动态设置怪物倍率（在 startNextWave 之前生效） */
+  setMonsterMultiplier(m: number): void {
+    this.monsterMultiplier = m;
   }
 
   get currentWave(): number {
@@ -50,7 +58,7 @@ export class WaveManager {
     this.waveTime = 0;
     this.tasks = this.level.waves[this.waveIndex].groups.map((gr: SpawnGroup) => ({
       type: gr.type,
-      remaining: gr.count,
+      remaining: Math.max(1, Math.round(gr.count * this.monsterMultiplier)),
       interval: gr.interval,
       nextAt: gr.delay ?? 0,
     }));

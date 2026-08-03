@@ -20,9 +20,14 @@ export class CodexScene extends Phaser.Scene {
   private contentHeight = 0;
   private scrollbar!: Phaser.GameObjects.Graphics;
   private scrollHitbox!: Phaser.GameObjects.Zone;
+  private returnTo = 'Menu';
 
   constructor() {
     super('Codex');
+  }
+
+  init(data: { returnTo?: string }): void {
+    this.returnTo = data?.returnTo ?? 'Menu';
   }
 
   create(): void {
@@ -36,8 +41,8 @@ export class CodexScene extends Phaser.Scene {
     // 标题
     this.add.text(cx, 60, '图鉴 · CODEX', titleStyle(48)).setOrigin(0.5);
 
-    // 返回按钮
-    createButton(this, 60, 60, '返回', () => this.scene.start('Menu'), {
+    // 返回按钮（回到来源场景）
+    createButton(this, 60, 60, '返回', () => this.scene.start(this.returnTo), {
       width: 110, height: 50, fontSize: 22, color: 0x455a64, colorDown: 0x37474f,
     });
 
@@ -286,6 +291,7 @@ export class CodexScene extends Phaser.Scene {
         color: 0x66bb6a,
         body:
           '炮台自动开火但仅瞄准你指向的方向，按住屏幕拖动可手动瞄准。' +
+          '每关开局可免费挑选 5 项技能作为战前储备，但怪物数量会相应增加以平衡难度。' +
           '波次间三选一强化，连杀有伤害加成。前期优先攻速+多重炮管铺量，' +
           '后期靠组合技爆发。墙血低于 25% 会红屏警告。',
       },
@@ -342,6 +348,16 @@ export class CodexScene extends Phaser.Scene {
           `共 ${LEVEL_ENGINE_INFO.totalLevels} 关，每 ${LEVEL_ENGINE_INFO.bossInterval} 关一个 Boss 关（第 5/10/15/20/25/30/35/40/45/50 关）。` +
           `每 ${LEVEL_ENGINE_INFO.chapterSize} 关一个大章节，biome 循环、难度跃升。` +
           `第 11 关起为程序化生成的关卡，难度持续上升，越往后越硬核。`,
+      },
+      {
+        title: '战前免费选技能',
+        color: 0x4fc3f7,
+        body:
+          '每次进入关卡，开局即可免费挑选 5 项技能作为战前储备。' +
+          '建议优先选择「多重炮管 + 急速装填 + 致命瞄准」等核心输出技能，' +
+          '或凑齐组合技前置（如灼烧弹+穿甲弹 → 地狱穿甲弹）。' +
+          '为平衡难度，选满 5 项后本关怪物数量会增加约 60%，' +
+          '因此请合理搭配，避免只选单一类型技能被克制。',
       },
     ];
 

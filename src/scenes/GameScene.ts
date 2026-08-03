@@ -3,6 +3,7 @@ import {
   GAME_HEIGHT, GAME_WIDTH, WALL_Y, ZombieTypeKey,
   levelClearReward, starsForWallRatio, EXPLOSION_DAMAGE,
   KILL_STREAK_THRESHOLDS,
+  PRE_GAME_FREE_SKILLS, PRE_GAME_MONSTER_MULTIPLIER,
 } from '../data/balance';
 import { LEVELS, LevelConfig, getLevel } from '../data/levels';
 import { AudioSystem } from '../systems/AudioSystem';
@@ -84,6 +85,8 @@ export class GameScene extends Phaser.Scene {
   private finished = false;
   /** 波次清空后、进入下一波/结算前的过渡态，防止每帧重复调度 */
   private transitioning = false;
+  /** 战前免费选技能剩余次数 */
+  private preGamePicksLeft = PRE_GAME_FREE_SKILLS;
 
   constructor() {
     super('Game');
@@ -95,6 +98,7 @@ export class GameScene extends Phaser.Scene {
     this.choosingUpgrade = false;
     this.finished = false;
     this.transitioning = false;
+    this.preGamePicksLeft = PRE_GAME_FREE_SKILLS;
     this.missileTimer = 0;
     this.shieldTimer = 0;
     this.streakTimer = 0;
@@ -193,8 +197,8 @@ export class GameScene extends Phaser.Scene {
     // 启动战斗 BGM
     AudioSystem.startBGM('normal');
 
-    // 第一波
-    this.time.delayedCall(800, () => this.beginWave());
+    // 战前免费选技能：选满 PRE_GAME_FREE_SKILLS 项后，提升怪物数量并开始第一波
+    this.time.delayedCall(600, () => this.showPreGameSkillSelection());
   }
 
   private createBackground(): void {
@@ -1011,6 +1015,83 @@ export class GameScene extends Phaser.Scene {
     this.redVignette.fillRect(0, GAME_HEIGHT - 40, GAME_WIDTH, 40);
     this.redVignette.fillRect(0, 0, 20, GAME_HEIGHT);
     this.redVignette.fillRect(GAME_WIDTH - 20, 0, 20, GAME_HEIGHT);
+  }
+
+  // ─── 战前免费选技能 ───
+
+  private showPreGameSkillSelection(): void {
+    if (this.finished) return;
+    this.choosingUpgrade = true;
+    this.physics.pause();
+
+    let overlay: Phaser.GameObjects.Rectangle | null = null;
+    let title: Phaser.GameObjects.Text | null = null;
+    let hint: Phaser.GameObjects.Text | null = null;
+    let cards: Phaser.GameObjects.Container[] = [];
+
+    const rebuild = () => {
+      overlay?.destroy();
+      title?.destroy();
+      hint?.destroy();
+      cards.forEach((c) => c.destroy());
+      cards = [];
+
+      const choices = this.skills.rollChoices(3);
+      if (choices.length === 0 || this.preGamePicksLeft <= 0) {
+        this.finishPreGame();
+        return;
+      }
+
+      overlay = createOverlay(this, 0.65).setDepth(30);
+      title = this.add
+        .text(GAME_WIDTH / 2, 180, '战前准备 · 免费选技能', {
+          fontFamily: FONT, fontSize: '44px', fontStyle: 'bold', color: '#ffd54a',
+          stroke: '#1a2530', strokeThickness: 6,
+        })
+        .setOrigin(0.5).setDepth(31);
+      hint = this.add
+        .text(GAME_WIDTH / 2, 236, `还可选择 ${this.preGamePicksLeft} 项  （选满后怪物数量 +${Math.round((PRE_GAME_MONSTER_MULTIPLIER - 1) * 100)}% 平衡难度）`, {
+          fontFamily: FONT, fontSize: '20px', fontStyle: 'bold', color: '#ffa726',
+          stroke: '#1a2530', strokeThickness: 3,
+          wordWrap: { width: GAME_WIDTH - 60 }, align: 'center',
+        })
+        .setOrigin(0.5).setDepth(31);
+
+      const cardW = 190;
+      const gap = 20;
+      const totalW = choices.length * cardW + (choices.length - 1) * gap;
+      const startX = (GAME_WIDTH - totalW) / 2 + cardW / 2;
+
+      choices.forEach((choice, i) => {
+        const card = this.createSkillCard(startX + i * (cardW + gap), 540, choice, () => {
+          this.skills.apply(choice.skill.key);
+          AudioSystem.play('upgrade');
+          this.preGamePicksLeft--;
+          if (this.preGamePicksLeft <= 0) {
+            overlay?.destroy();
+            title?.destroy();
+            hint?.destroy();
+            cards.forEach((c) => c.destroy());
+            cards = [];
+            this.finishPreGame();
+          } else {
+            rebuild();
+          }
+        });
+        cards.push(card);
+      });
+    };
+
+    rebuild();
+  }
+
+  /** 战前选技能结束：应用怪物倍率并开始第一波 */
+  private finishPreGame(): void {
+    this.choosingUpgrade = false;
+    this.transitioning = false;
+    this.waveManager.setMonsterMultiplier(PRE_GAME_MONSTER_MULTIPLIER);
+    this.physics.resume();
+    this.beginWave();
   }
 
   // ─── 三选一技能选择 ───
