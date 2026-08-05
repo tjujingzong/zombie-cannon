@@ -137,6 +137,8 @@ export class LevelSelectScene extends Phaser.Scene {
     if (unlocked) {
       g.lineStyle(3, isBoss ? 0xe74c3c : 0x4caf50, 0.85).strokeRoundedRect(x - w / 2, y - h / 2, w, h, 14);
     }
+    // 先添加背景图形到容器
+    this.contentContainer.add(g);
 
     if (unlocked) {
       // Boss 关标记
@@ -177,7 +179,6 @@ export class LevelSelectScene extends Phaser.Scene {
       this.contentContainer.add(this.add.text(x, y - 12, '🔒', { fontSize: '36px' }).setOrigin(0.5));
       this.contentContainer.add(this.add.text(x, y + 36, `${id}`, textStyle(16, '#8a9aa8')).setOrigin(0.5));
     }
-    this.contentContainer.add(g);
   }
 
   private createShopRow(key: MetaUpgradeKey, y: number): void {
