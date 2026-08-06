@@ -24,6 +24,7 @@ export interface ZombieStats {
 }
 
 export const ZOMBIE_TYPES: Record<string, ZombieStats> = {
+  swarm:       { hp: 9,   speed: 78,  damage: 2,  coin: 1,   scale: 0.68, texture: 'zombie_swarm',       tint: 0xffffff },
   normal:      { hp: 30,  speed: 60,  damage: 5,  coin: 5,   scale: 1,   texture: 'zombie_normal',      tint: 0xffffff },
   fast:        { hp: 18,  speed: 120, damage: 4,  coin: 7,   scale: 0.85, texture: 'zombie_fast',       tint: 0xffffff },
   tank:        { hp: 120, speed: 38,  damage: 12, coin: 15,  scale: 1.3, texture: 'zombie_tank',       tint: 0xffffff },
@@ -57,6 +58,11 @@ export interface ZombieCodex {
 }
 
 export const ZOMBIE_CODEX: Record<ZombieTypeKey, ZombieCodex> = {
+  swarm: {
+    role: '尸潮腐尸', behavior: '成群结队高速涌入，单体脆弱但数量极多。',
+    weaknesses: ['范围伤害', '穿透', '弹射'], counter: '保留爆炸、穿透与过载，在尸潮密集时一次清场。',
+    firstSeen: 1, threat: 2,
+  },
   normal: {
     role: '普通步兵', behavior: '直线推进，触墙后周期攻击。无特殊能力。',
     weaknesses: ['任何攻击'], counter: '基础攻击即可应对，注意数量积累。',
@@ -139,6 +145,12 @@ export const EXPLOSION_DAMAGE = 15; // 爆炸对周围僵尸伤害
 export const KILL_STREAK_THRESHOLDS = [5, 15, 30, 50]; // 连杀阈值
 export const KILL_STREAK_BONUS = [0.1, 0.2, 0.35, 0.5]; // 对应伤害加成
 
+// 最终波尸潮：使用低血量腐尸制造密度，避免把普通敌人血量生硬堆高
+export const HORDE_BASE_COUNT = 52;
+export const HORDE_COUNT_PER_LEVEL = 2.2;
+export const HORDE_MAX_COUNT = 180;
+export const HORDE_SPAWN_INTERVAL = 0.085;
+
 // ── 战前免费选技能 ──
 // 每关开局可免费挑选的技能数；同时按此倍率增加怪物数量以平衡难度
 export const PRE_GAME_FREE_SKILLS = 5;
@@ -150,6 +162,8 @@ export const META_UPGRADES = {
   fireRate: { name: '基础攻速', desc: '每级攻速 +5%', baseCost: 120, max: 20 },
   wallHp: { name: '墙体上限', desc: '每级墙血 +15%', baseCost: 100, max: 20 },
   coinBonus: { name: '金币加成', desc: '每级金币 +10%', baseCost: 150, max: 15 },
+  overdriveStart: { name: '过载储能', desc: '每级初始过载 +10%', baseCost: 180, max: 10 },
+  salvage: { name: '战利品精炼', desc: '每次击杀额外 +1 金币', baseCost: 220, max: 8 },
 } as const;
 
 export type MetaUpgradeKey = keyof typeof META_UPGRADES;

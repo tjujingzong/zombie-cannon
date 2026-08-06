@@ -22,4 +22,12 @@ export const MetaUpgrades = {
   coinMultiplier(): number {
     return 1 + SaveManager.getMetaLevel('coinBonus') * 0.1;
   },
+
+  initialOverdrive(): number {
+    return SaveManager.getMetaLevel('overdriveStart') * 10;
+  },
+
+  flatCoinBonus(): number {
+    return SaveManager.getMetaLevel('salvage');
+  },
 };

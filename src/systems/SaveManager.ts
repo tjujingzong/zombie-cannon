@@ -20,7 +20,7 @@ function defaultSave(): SaveData {
     coins: 0,
     unlockedLevel: 1,
     stars: {},
-    meta: { damage: 0, fireRate: 0, wallHp: 0, coinBonus: 0 },
+    meta: { damage: 0, fireRate: 0, wallHp: 0, coinBonus: 0, overdriveStart: 0, salvage: 0 },
   };
 }
 

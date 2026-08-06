@@ -9,6 +9,7 @@ export class Bullet extends Phaser.Physics.Arcade.Sprite {
   pierceLeft = 0;
   ricochetLeft = 0;
   isCrit = false;
+  hitCount = 0;
   acidMode = false;
   private trailTimer = 0;
 
@@ -22,6 +23,7 @@ export class Bullet extends Phaser.Physics.Arcade.Sprite {
     this.pierceLeft = pierce;
     this.ricochetLeft = this.acidMode ? 0 : ricochet;
     this.isCrit = isCrit;
+    this.hitCount = 0;
     this.setRotation(angle + Math.PI / 2);
     this.setTint(isCrit ? 0xffd54a : 0xffffff);
     this.setScale(isCrit ? 1.35 : 1);
@@ -32,8 +34,16 @@ export class Bullet extends Phaser.Physics.Arcade.Sprite {
   }
 
   onHit(): boolean {
+    this.hitCount++;
     this.pierceLeft--;
     return this.pierceLeft < 0;
+  }
+
+  /** 改变弹射方向但保留本次子弹的连锁命中计数 */
+  redirect(angle: number): void {
+    this.setRotation(angle + Math.PI / 2);
+    const body = this.body as Phaser.Physics.Arcade.Body;
+    this.scene.physics.velocityFromRotation(angle, BULLET_SPEED, body.velocity);
   }
 
   recycle(): void {

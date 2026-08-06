@@ -20,6 +20,7 @@ export interface RollChoice {
 export class SkillSystem {
   private levels: Record<string, number> = {};
   private activeSynergies: Set<string> = new Set();
+  private overdriveActive = false;
 
   /** 连杀计数 */
   killStreak = 0;
@@ -42,7 +43,7 @@ export class SkillSystem {
   get damage(): number {
     const base = MetaUpgrades.baseDamage();
     const bonus = this.getLevel('firePower') * getSkill('firePower').perLevel;
-    return base * (1 + bonus);
+    return base * (1 + bonus) * (this.overdriveActive ? 1.65 : 1);
   }
 
   get fireRate(): number {
@@ -52,7 +53,7 @@ export class SkillSystem {
     if (this.hasSynergy('barrage') && this.getLevel('multiBarrel') > 0) {
       rate *= 1.5;
     }
-    return rate;
+    return rate * (this.overdriveActive ? 1.75 : 1);
   }
 
   get bulletCount(): number {
@@ -60,7 +61,7 @@ export class SkillSystem {
   }
 
   get pierce(): number {
-    return this.getLevel('armorPiercing');
+    return this.getLevel('armorPiercing') + (this.overdriveActive ? 2 : 0);
   }
 
   get critChance(): number {
@@ -136,6 +137,14 @@ export class SkillSystem {
 
   get hasMagnet(): boolean {
     return this.getLevel('magnet') > 0;
+  }
+
+  get isOverdriveActive(): boolean {
+    return this.overdriveActive;
+  }
+
+  setOverdrive(active: boolean): void {
+    this.overdriveActive = active;
   }
 
   get luckBonus(): number {

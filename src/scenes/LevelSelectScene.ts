@@ -18,10 +18,20 @@ export class LevelSelectScene extends Phaser.Scene {
   private coinText!: Phaser.GameObjects.Text;
   private shopRows: Partial<Record<MetaUpgradeKey, () => void>> = {};
   private contentContainer!: Phaser.GameObjects.Container;
+  private levelsContainer!: Phaser.GameObjects.Container;
+  private shopContainer!: Phaser.GameObjects.Container;
+  private renderTarget!: Phaser.GameObjects.Container;
   private contentHeight = 0;
+  private levelContentHeight = 0;
+  private shopContentHeight = 0;
   private scrollY = 0;
   private scrollHitbox!: Phaser.GameObjects.Zone;
   private scrollbar!: Phaser.GameObjects.Graphics;
+  private pageLabel!: Phaser.GameObjects.Text;
+  private chapterPage = 0;
+  private activeTab: 'levels' | 'shop' = 'levels';
+  private tabButtons: Phaser.GameObjects.Container[] = [];
+  private pageButtons: Phaser.GameObjects.Container[] = [];
 
   constructor() {
     super('LevelSelect');
@@ -34,79 +44,51 @@ export class LevelSelectScene extends Phaser.Scene {
     bg.fillGradientStyle(0x101820, 0x101820, 0x16222c, 0x16222c, 1);
     bg.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-    // 顶栏
-    this.add.text(cx, 70, '选择关卡', titleStyle(52)).setOrigin(0.5);
-    this.add.image(48, 70, 'coin').setScale(1.1);
-    this.coinText = this.add.text(72, 70, `${SaveManager.coins}`, textStyle(30, '#ffd54a')).setOrigin(0, 0.5);
+    // 顶栏：标题单独占一行，避免被返回/图鉴按钮遮挡
+    this.add.text(cx, 54, '选择关卡', titleStyle(48)).setOrigin(0.5);
+    this.add.image(126, 54, 'coin').setScale(0.9);
+    this.coinText = this.add.text(148, 54, `${SaveManager.coins}`, textStyle(25, '#ffd54a')).setOrigin(0, 0.5);
 
-    createButton(this, 60, 70, '返回', () => {
+    createButton(this, 58, 54, '返回', () => {
       AudioSystem.play('ui_click');
       AudioSystem.startBGM('menu');
       this.scene.start('Menu');
-    }, { width: 100, height: 52, fontSize: 22, color: 0x455a64, colorDown: 0x37474f });
+    }, { width: 92, height: 48, fontSize: 20, color: 0x455a64, colorDown: 0x37474f });
 
     // 图鉴入口（右上角）
-    createButton(this, GAME_WIDTH - 60, 70, '图鉴', () => {
+    createButton(this, GAME_WIDTH - 58, 54, '图鉴', () => {
       AudioSystem.play('ui_click');
       this.scene.start('Codex', { returnTo: 'LevelSelect' });
-    }, { width: 110, height: 52, fontSize: 22, color: 0x6a3b8a, colorDown: 0x4a2b6a });
+    }, { width: 104, height: 48, fontSize: 20, color: 0x6a3b8a, colorDown: 0x4a2b6a });
 
-    // 滚动容器：关卡网格 + 商店
-    this.contentContainer = this.add.container(0, 130).setDepth(5);
-
-    const cols = 5;
-    const cellW = 130;
-    const cellH = 156;
-    const startX = (GAME_WIDTH - cellW * (cols - 1)) / 2;
-
-    // 按章节分组渲染
-    const chapterSize = LEVEL_ENGINE_INFO.chapterSize;
-    let y = 20;
-
-    for (let chapter = 0; chapter < Math.ceil(TOTAL_LEVELS / chapterSize); chapter++) {
-      const startId = chapter * chapterSize + 1;
-      const endId = Math.min(startId + chapterSize - 1, TOTAL_LEVELS);
-      if (startId > TOTAL_LEVELS) break;
-
-      // 章节标题条
-      const headerG = this.add.graphics();
-      headerG.fillStyle(0x2a3b2c, 0.7).fillRoundedRect(20, y, GAME_WIDTH - 40, 40, 10);
-      const headerTxt = this.add.text(40, y + 20, `第 ${chapter + 1} 章`, {
-        fontFamily: FONT, fontSize: '22px', fontStyle: 'bold', color: '#ffd54a',
-        stroke: '#000000', strokeThickness: 2,
-      }).setOrigin(0, 0.5);
-      this.contentContainer.add([headerG, headerTxt]);
-      y += 56;
-
-      // 该章节的关卡
-      for (let id = startId; id <= endId; id++) {
-        const lv = LEVELS.find((l) => l.id === id);
-        if (!lv) continue;
-        const idx = id - startId;
-        const col = idx % cols;
-        const row = Math.floor(idx / cols);
-        this.createLevelCell(startX + col * cellW, y + row * cellH, lv.id, lv.name, lv.bossLevel);
-      }
-      const rows = Math.ceil((endId - startId + 1) / cols);
-      y += rows * cellH + 20;
-    }
-
-    // 养成商店
-    this.contentContainer.add(this.add.text(cx, y + 10, '—— 永久强化 ——', {
-      ...textStyle(30, '#ffffff'),
-      stroke: '#000000', strokeThickness: 2,
-    }).setOrigin(0.5, 0));
-    y += 60;
-    (Object.keys(META_UPGRADES) as MetaUpgradeKey[]).forEach((key, i) => {
-      this.createShopRow(key, y + i * 108);
-    });
-    y += Object.keys(META_UPGRADES).length * 108 + 40;
-
-    this.contentHeight = y;
-
-    // 滚动 hitbox（覆盖关卡 + 商店区）
+    // 分栏：关卡分页与金币商店分开，避免把商店挤到长列表底部
+    this.contentContainer = this.add.container(0, 0).setDepth(5);
+    this.levelsContainer = this.add.container(0, 188);
+    this.shopContainer = this.add.container(0, 188).setVisible(false);
+    this.contentContainer.add([this.levelsContainer, this.shopContainer]);
     this.scrollbar = this.add.graphics().setDepth(8);
-    const viewTop = 130;
+
+    this.tabButtons = [
+      createButton(this, GAME_WIDTH / 2 - 100, 126, '关卡', () => this.showTab('levels'), {
+        width: 180, height: 50, fontSize: 22, color: 0x2f754b, colorDown: 0x205636,
+      }),
+      createButton(this, GAME_WIDTH / 2 + 100, 126, '金币商店', () => this.showTab('shop'), {
+        width: 180, height: 50, fontSize: 22, color: 0x7a5a19, colorDown: 0x604411,
+      }),
+    ];
+    this.tabButtons[1].setAlpha(0.62);
+
+    this.chapterPage = Phaser.Math.Clamp(
+      Math.floor((SaveManager.unlockedLevel - 1) / LEVEL_ENGINE_INFO.chapterSize),
+      0, Math.ceil(TOTAL_LEVELS / LEVEL_ENGINE_INFO.chapterSize) - 1,
+    );
+    this.pageLabel = this.add.text(cx, 164, '', textStyle(20, '#b0bec5')).setOrigin(0.5);
+    this.buildLevelPage();
+    this.buildShopPage();
+    this.refreshPageControls();
+
+    // 轻量滚动容器：商店未来扩展时仍可继续容纳内容
+    const viewTop = 188;
     const viewH = GAME_HEIGHT - viewTop - 20;
     this.scrollHitbox = this.add.zone(GAME_WIDTH / 2, viewTop + viewH / 2, GAME_WIDTH, viewH)
       .setInteractive({ useHandCursor: true });
@@ -120,6 +102,81 @@ export class LevelSelectScene extends Phaser.Scene {
       if (p.isDown) this.setScroll(dragStartScroll - (p.y - dragStartY));
     });
     this.drawScrollbar();
+  }
+
+  private buildLevelPage(): void {
+    this.levelsContainer.removeAll(true);
+    const chapterSize = LEVEL_ENGINE_INFO.chapterSize;
+    const startId = this.chapterPage * chapterSize + 1;
+    const endId = Math.min(startId + chapterSize - 1, TOTAL_LEVELS);
+    const headerG = this.add.graphics();
+    headerG.fillStyle(0x2a3b2c, 0.75).fillRoundedRect(20, 18, GAME_WIDTH - 40, 44, 12);
+    const headerTxt = this.add.text(40, 40, `第 ${this.chapterPage + 1} 章  ·  ${LEVELS[startId - 1]?.name ?? ''}`, {
+      fontFamily: FONT, fontSize: '21px', fontStyle: 'bold', color: '#ffd54a',
+      stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0, 0.5);
+    this.levelsContainer.add([headerG, headerTxt]);
+
+    const cols = 5;
+    const cellW = 130;
+    const cellH = 156;
+    const startX = (GAME_WIDTH - cellW * (cols - 1)) / 2;
+    for (let id = startId; id <= endId; id++) {
+      const lv = LEVELS.find((l) => l.id === id);
+      if (!lv) continue;
+      const idx = id - startId;
+      this.renderTarget = this.levelsContainer;
+      this.createLevelCell(startX + (idx % cols) * cellW, 134 + Math.floor(idx / cols) * cellH, lv.id, lv.name, lv.bossLevel);
+    }
+    this.levelContentHeight = 188 + 134 + 2 * cellH + 28;
+    if (this.activeTab === 'levels') this.contentHeight = this.levelContentHeight;
+    this.pageLabel.setText(`章节 ${this.chapterPage + 1} / ${Math.ceil(TOTAL_LEVELS / chapterSize)}  ·  ${startId}-${endId} 关`);
+    this.setScroll(0);
+  }
+
+  private buildShopPage(): void {
+    this.shopContainer.removeAll(true);
+    this.renderTarget = this.shopContainer;
+    this.shopContainer.add(this.add.text(GAME_WIDTH / 2, 30, '金币商店', {
+      ...textStyle(30, '#ffd54a'), stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5));
+    this.shopContainer.add(this.add.text(GAME_WIDTH / 2, 64, '永久效果 · 每局都会生效', textStyle(16, '#8a9aa8')).setOrigin(0.5));
+    (Object.keys(META_UPGRADES) as MetaUpgradeKey[]).forEach((key, i) => this.createShopRow(key, 122 + i * 108));
+    this.shopContentHeight = 188 + 122 + Object.keys(META_UPGRADES).length * 108 + 24;
+    if (this.activeTab === 'shop') this.contentHeight = this.shopContentHeight;
+  }
+
+  private showTab(tab: 'levels' | 'shop'): void {
+    this.activeTab = tab;
+    this.levelsContainer.setVisible(tab === 'levels');
+    this.shopContainer.setVisible(tab === 'shop');
+    this.tabButtons[0].setAlpha(tab === 'levels' ? 1 : 0.62);
+    this.tabButtons[1].setAlpha(tab === 'shop' ? 1 : 0.62);
+    this.pageLabel.setVisible(tab === 'levels');
+    this.pageButtons.forEach((b) => b.setVisible(tab === 'levels'));
+    this.contentHeight = tab === 'levels' ? this.levelContentHeight : this.shopContentHeight;
+    this.setScroll(0);
+    AudioSystem.play('ui_click');
+  }
+
+  private refreshPageControls(): void {
+    this.pageButtons.forEach((b) => b.destroy());
+    this.pageButtons = [];
+    const maxPage = Math.ceil(TOTAL_LEVELS / LEVEL_ENGINE_INFO.chapterSize) - 1;
+    if (this.chapterPage > 0) {
+      this.pageButtons.push(createButton(this, 74, 164, '◀', () => {
+        this.chapterPage--;
+        this.buildLevelPage();
+        this.refreshPageControls();
+      }, { width: 58, height: 42, fontSize: 20, color: 0x455a64, colorDown: 0x37474f }));
+    }
+    if (this.chapterPage < maxPage) {
+      this.pageButtons.push(createButton(this, GAME_WIDTH - 74, 164, '▶', () => {
+        this.chapterPage++;
+        this.buildLevelPage();
+        this.refreshPageControls();
+      }, { width: 58, height: 42, fontSize: 20, color: 0x455a64, colorDown: 0x37474f }));
+    }
   }
 
   private createLevelCell(x: number, y: number, id: number, name: string, isBoss: boolean): void {
@@ -138,14 +195,14 @@ export class LevelSelectScene extends Phaser.Scene {
       g.lineStyle(3, isBoss ? 0xe74c3c : 0x4caf50, 0.85).strokeRoundedRect(x - w / 2, y - h / 2, w, h, 14);
     }
     // 先添加背景图形到容器
-    this.contentContainer.add(g);
+    this.renderTarget.add(g);
 
     if (unlocked) {
       // Boss 关标记
       if (isBoss) {
-        this.contentContainer.add(this.add.image(x, y - h / 2 + 14, 'boss_crown').setScale(0.7));
+        this.renderTarget.add(this.add.image(x, y - h / 2 + 14, 'boss_crown').setScale(0.7));
       }
-      this.contentContainer.add(
+      this.renderTarget.add(
         this.add.text(x, y - h / 2 + (isBoss ? 34 : 26), `${id}`, {
           fontFamily: FONT, fontSize: isBoss ? '26px' : '30px', fontStyle: 'bold',
           color: isBoss ? '#ffd54a' : '#ffffff',
@@ -157,10 +214,10 @@ export class LevelSelectScene extends Phaser.Scene {
         align: 'center', wordWrap: { width: w - 8 },
         stroke: '#000000', strokeThickness: 2,
       }).setOrigin(0.5);
-      this.contentContainer.add(nameTxt);
+      this.renderTarget.add(nameTxt);
       // 星级
       for (let s = 0; s < 3; s++) {
-        this.contentContainer.add(
+        this.renderTarget.add(
           this.add.image(x - 24 + s * 24, y + h / 2 - 18, s < stars ? 'star' : 'star_empty').setScale(0.32)
         );
       }
@@ -174,10 +231,10 @@ export class LevelSelectScene extends Phaser.Scene {
           this.scene.start('Game', { levelId: id });
         }
       });
-      this.contentContainer.add(zone);
+      this.renderTarget.add(zone);
     } else {
-      this.contentContainer.add(this.add.text(x, y - 12, '🔒', { fontSize: '36px' }).setOrigin(0.5));
-      this.contentContainer.add(this.add.text(x, y + 36, `${id}`, textStyle(16, '#8a9aa8')).setOrigin(0.5));
+      this.renderTarget.add(this.add.text(x, y - 12, '🔒', { fontSize: '36px' }).setOrigin(0.5));
+      this.renderTarget.add(this.add.text(x, y + 36, `${id}`, textStyle(16, '#8a9aa8')).setOrigin(0.5));
     }
   }
 
@@ -206,6 +263,7 @@ export class LevelSelectScene extends Phaser.Scene {
         btn = createButton(this, x0 + w - 100, y, '已满级', () => {}, {
           width: 160, height: 60, fontSize: 22, disabled: true,
         });
+        this.shopContainer.add(btn);
         return;
       }
       const cost = metaUpgradeCost(key, level);
@@ -229,19 +287,20 @@ export class LevelSelectScene extends Phaser.Scene {
           colorDown: 0x8a6508, disabled: !affordable,
         }
       );
+      this.shopContainer.add(btn);
     };
+    this.shopContainer.add([g, nameText, descText]);
     this.shopRows[key] = refresh;
     refresh();
-    this.contentContainer.add([g, nameText, descText]);
   }
 
   // ── 滚动 ──
   private setScroll(target: number): void {
-    const viewTop = 130;
+    const viewTop = 188;
     const viewH = GAME_HEIGHT - viewTop - 20;
-    const maxScroll = Math.max(0, this.contentHeight - viewH);
+    const maxScroll = Math.max(0, this.contentHeight - (viewTop + viewH));
     this.scrollY = Phaser.Math.Clamp(target, 0, maxScroll);
-    this.contentContainer.setY(viewTop - this.scrollY);
+    this.contentContainer.setY(-this.scrollY);
     this.drawScrollbar();
   }
 
@@ -251,14 +310,15 @@ export class LevelSelectScene extends Phaser.Scene {
 
   private drawScrollbar(): void {
     this.scrollbar.clear();
-    const viewTop = 130;
+    const viewTop = 188;
     const viewH = GAME_HEIGHT - viewTop - 20;
-    if (this.contentHeight <= viewH) return;
+    const contentLength = Math.max(viewH, this.contentHeight - viewTop);
+    if (contentLength <= viewH) return;
     const trackX = GAME_WIDTH - 8;
     this.scrollbar.fillStyle(0xffffff, 0.08).fillRoundedRect(trackX, viewTop, 4, viewH, 2);
-    const ratio = viewH / this.contentHeight;
+    const ratio = viewH / contentLength;
     const thumbH = Math.max(40, viewH * ratio);
-    const maxScroll = this.contentHeight - viewH;
+    const maxScroll = contentLength - viewH;
     const thumbY = viewTop + (maxScroll > 0 ? (this.scrollY / maxScroll) * (viewH - thumbH) : 0);
     this.scrollbar.fillStyle(0xffd54a, 0.6).fillRoundedRect(trackX, thumbY, 4, thumbH, 2);
   }

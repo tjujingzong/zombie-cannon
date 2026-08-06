@@ -46,6 +46,9 @@ export class GameScene extends Phaser.Scene {
 
   /** 激光束图形 */
   private laserGraphics!: Phaser.GameObjects.Graphics;
+  private lightningGraphics!: Phaser.GameObjects.Graphics;
+  private bloodEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
+  private explosionEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
   /** 氛围粒子（飘落的灰尘/灰烬） */
   private ambientEmbers: Phaser.GameObjects.Image[] = [];
 
@@ -70,6 +73,9 @@ export class GameScene extends Phaser.Scene {
   private hitComboMax = 0;
   /** 低血量红屏 */
   private redVignette!: Phaser.GameObjects.Graphics;
+  private overdriveTimer = 0;
+  private armageddonTimer = 0;
+  private hordeBannerShown = false;
 
   // 供 UIScene 读取的公开状态
   runCoins = 0;
@@ -80,6 +86,11 @@ export class GameScene extends Phaser.Scene {
   waveLabel = '';
   hitComboDisplay = 0;
   isBossWave = false;
+  isHordeActive = false;
+  hordeProgress = 0;
+  enemyCount = 0;
+  overdriveCharge = 0;
+  overdriveReady = false;
 
   private choosingUpgrade = false;
   private finished = false;
@@ -110,6 +121,14 @@ export class GameScene extends Phaser.Scene {
     this.comboTimer = 0;
     this.hitComboMax = 0;
     this.isBossWave = false;
+    this.isHordeActive = false;
+    this.hordeProgress = 0;
+    this.enemyCount = 0;
+    this.overdriveCharge = 0;
+    this.overdriveReady = false;
+    this.overdriveTimer = 0;
+    this.armageddonTimer = 0;
+    this.hordeBannerShown = false;
   }
 
   create(): void {
@@ -122,6 +141,8 @@ export class GameScene extends Phaser.Scene {
 
     // 技能系统
     this.skills = new SkillSystem();
+    this.overdriveCharge = MetaUpgrades.initialOverdrive();
+    this.overdriveReady = this.overdriveCharge >= 100;
     this.skills.onRepair = (ratio) => {
       this.wallHp = Math.min(this.wallMaxHp, this.wallHp + Math.round(this.wallMaxHp * ratio));
       AudioSystem.play('heal');
@@ -139,16 +160,35 @@ export class GameScene extends Phaser.Scene {
 
     this.waveManager = new WaveManager(this.level);
     this.waveManager.onSpawn = (type) => this.spawnZombie(type);
+    this.waveManager.onHordeStart = () => {
+      this.isHordeActive = true;
+      if (!this.hordeBannerShown) {
+        this.hordeBannerShown = true;
+        this.showHordeIntro();
+      }
+      AudioSystem.startBGM('horde');
+      AudioSystem.play('horde', { volume: 0.9 });
+    };
 
     // 对象池（满屏僵尸：扩大池上限）
     this.bullets = this.physics.add.group({ classType: Bullet, maxSize: 800 });
-    this.zombies = this.physics.add.group({ classType: Zombie, maxSize: 400 });
+    // 尸潮末波最高约 450 个单位（含护航和召唤），给对象池留出安全余量
+    this.zombies = this.physics.add.group({ classType: Zombie, maxSize: 520 });
     this.coins = this.add.group({ classType: Coin, maxSize: 200 });
     this.acidBalls = this.physics.add.group({ classType: Bullet, maxSize: 80 });
     this.missiles = this.physics.add.group({ classType: Bullet, maxSize: 60 });
 
     // 激光束图形层
     this.laserGraphics = this.add.graphics().setDepth(12);
+    this.lightningGraphics = this.add.graphics().setDepth(14);
+    this.bloodEmitter = this.add.particles(0, 0, 'blood', {
+      speed: { min: 80, max: 280 }, lifespan: 450,
+      scale: { start: 1.1, end: 0 }, quantity: 16, emitting: false,
+    }).setDepth(13);
+    this.explosionEmitter = this.add.particles(0, 0, 'explosion_particle', {
+      speed: { min: 100, max: 320 }, lifespan: 450,
+      scale: { start: 1.4, end: 0 }, quantity: 20, emitting: false,
+    }).setDepth(13);
     // 氛围粒子：飘落的灰烬
     this.ambientEmbers = [];
     for (let i = 0; i < 30; i++) {
@@ -206,10 +246,17 @@ export class GameScene extends Phaser.Scene {
     const bg = this.add.graphics().setDepth(-10);
     bg.fillGradientStyle(pal.top, pal.top, pal.bottom, pal.bottom, 1);
     bg.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
-    // 路面纹理（颜色随 biome）
-    bg.fillStyle(pal.road, 0.03);
+    // 纵深路面：中心车道、边缘碎石和远处雾带
+    bg.fillStyle(pal.road, 0.045).fillRect(GAME_WIDTH * 0.25, 0, GAME_WIDTH * 0.5, WALL_Y);
+    bg.fillStyle(pal.road, 0.025);
     for (let i = 0; i < 160; i++) {
       bg.fillCircle(Phaser.Math.Between(0, GAME_WIDTH), Phaser.Math.Between(0, WALL_Y), Phaser.Math.Between(2, 7));
+    }
+    bg.fillStyle(0xffffff, 0.025);
+    for (let y = 120; y < WALL_Y - 40; y += 150) bg.fillRect(0, y, GAME_WIDTH, 18);
+    bg.fillStyle(pal.road, 0.12);
+    for (let y = 140; y < WALL_Y - 80; y += 170) {
+      bg.fillRoundedRect(GAME_WIDTH / 2 - 6, y, 12, 72, 6);
     }
     // 远景剪影（增加层次）
     bg.fillStyle(0x000000, 0.18);
@@ -218,7 +265,21 @@ export class GameScene extends Phaser.Scene {
       const bw = Phaser.Math.Between(80, 160);
       const bh = Phaser.Math.Between(60, 140);
       bg.fillRect(bx, WALL_Y - bh, bw, bh);
+      bg.fillStyle(pal.road, 0.08);
+      for (let wx = bx + 12; wx < bx + bw - 8; wx += 24) {
+        bg.fillRect(wx, WALL_Y - bh + 18, 8, 12);
+        bg.fillRect(wx, WALL_Y - bh + 44, 8, 12);
+      }
+      bg.fillStyle(0x000000, 0.18);
     }
+    // 路边残骸/路灯剪影，给不同 biome 的色板提供可读的场景结构
+    bg.fillStyle(0x000000, 0.32);
+    bg.fillRect(54, WALL_Y - 210, 8, 210);
+    bg.fillRect(48, WALL_Y - 210, 54, 7);
+    bg.fillCircle(102, WALL_Y - 207, 14);
+    bg.fillRect(GAME_WIDTH - 62, WALL_Y - 170, 8, 170);
+    bg.fillRect(GAME_WIDTH - 112, WALL_Y - 170, 58, 7);
+    bg.fillCircle(GAME_WIDTH - 112, WALL_Y - 167, 13);
     // 基地墙
     this.add.tileSprite(GAME_WIDTH / 2, WALL_Y + 24, GAME_WIDTH, 48, 'wall_tile').setDepth(9);
     // 墙后地面
@@ -227,6 +288,9 @@ export class GameScene extends Phaser.Scene {
     if (this.level.bossLevel) {
       bg.fillStyle(0xff1744, 0.08).fillRect(0, 0, GAME_WIDTH, WALL_Y);
     }
+    // 顶部冷色雾幕：保持场景明暗分层，同时让僵尸从远处压进来的感觉更强
+    bg.fillStyle(pal.road, 0.035).fillRect(0, 82, GAME_WIDTH, 110);
+    bg.fillStyle(0x000000, 0.12).fillRect(0, WALL_Y - 120, GAME_WIDTH, 120);
   }
 
   // ─── 波次 ───
@@ -244,18 +308,24 @@ export class GameScene extends Phaser.Scene {
 
     if (isBossWave) {
       this.showBossIntro();
-      AudioSystem.startBGM('boss');
+      AudioSystem.startBGM(this.isHordeActive ? 'horde' : 'boss');
       AudioSystem.play('boss');
     } else {
       // 切回普通 BGM（若之前是 boss）
-      if (this.waveManager.currentWave > 1) {
+      if (this.isHordeActive) {
+        AudioSystem.startBGM('horde');
+      } else if (this.waveManager.currentWave > 1) {
         AudioSystem.startBGM('normal');
       }
       AudioSystem.play('wave');
     }
 
     const bannerColor = isBossWave ? '#ff1744' : '#ffd54a';
-    const bannerText = isBossWave ? `⚠ BOSS 波 ${this.waveManager.currentWave}/${this.waveManager.totalWaves}` : `第 ${this.waveManager.currentWave} 波`;
+    const bannerText = isBossWave
+      ? `⚠ BOSS 波 ${this.waveManager.currentWave}/${this.waveManager.totalWaves}`
+      : this.isHordeActive
+        ? `尸潮来袭 · ${this.waveManager.currentWave}/${this.waveManager.totalWaves}`
+        : `第 ${this.waveManager.currentWave} 波`;
     const banner = this.add
       .text(GAME_WIDTH / 2, GAME_HEIGHT * 0.35, bannerText, {
         fontFamily: FONT, fontSize: isBossWave ? '56px' : '64px', fontStyle: 'bold', color: bannerColor,
@@ -291,6 +361,26 @@ export class GameScene extends Phaser.Scene {
       yoyo: true, hold: 800,
       onComplete: () => warn.destroy(),
     });
+  }
+
+  private showHordeIntro(): void {
+    const flash = this.add.rectangle(
+      GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x2cff9a, 0.22,
+    ).setDepth(22);
+    this.tweens.add({
+      targets: flash, alpha: 0, duration: 650, ease: 'Cubic.Out',
+      onComplete: () => flash.destroy(),
+    });
+    const warn = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT * 0.28, '尸 潮', {
+      fontFamily: FONT, fontSize: '86px', fontStyle: 'bold', color: '#b6ff6a',
+      stroke: '#102218', strokeThickness: 14,
+    }).setOrigin(0.5).setDepth(23).setScale(0.35);
+    this.tweens.add({
+      targets: warn, scale: 1.12, duration: 420, ease: 'Back.Out',
+      yoyo: true, hold: 900,
+      onComplete: () => warn.destroy(),
+    });
+    this.cameras.main.shake(500, 0.012);
   }
 
   // ─── 生成僵尸 ───
@@ -335,14 +425,9 @@ export class GameScene extends Phaser.Scene {
     });
     this.cameras.main.shake(200, 0.01);
     // 出场粒子环
-    this.add.particles(x, y, 'explosion_particle', {
-      speed: { min: 100, max: 250 },
-      lifespan: 600,
-      scale: { start: 1.5, end: 0 },
-      quantity: 20,
-      tint: [0x9455a8, 0xce93d8, 0xff66ff],
-      emitting: false,
-    }).explode(20);
+    this.explosionEmitter.setPosition(x, y);
+    this.explosionEmitter.setParticleTint(0xce93d8);
+    this.explosionEmitter.explode(20);
   }
 
   // ─── 子弹系统 ───
@@ -392,7 +477,14 @@ export class GameScene extends Phaser.Scene {
       this.doExplosion(zombie.x, zombie.y);
     }
 
-    if (bullet.onHit()) {
+    const bulletEnded = bullet.onHit();
+
+    // 连锁闪电：高等级弹射连续命中后自动跳链，专门对付尸潮密集区
+    if (this.skills.hasSynergy('chainLightning') && bullet.hitCount % 3 === 0) {
+      this.doChainLightning(zombie);
+    }
+
+    if (bulletEnded) {
       // 弹射
       if (this.skills.ricochetCount > 0 && bullet.ricochetLeft > 0) {
         this.ricochetBullet(bullet, zombie);
@@ -428,10 +520,41 @@ export class GameScene extends Phaser.Scene {
     if (nearest) {
       bullet.ricochetLeft--;
       const angle = Phaser.Math.Angle.Between(bullet.x, bullet.y, nearest.x, nearest.y);
-      bullet.fire(bullet.x, bullet.y, angle, bullet.damage, bullet.pierceLeft, bullet.isCrit, bullet.ricochetLeft);
+      bullet.redirect(angle);
+
+      // 弹幕风暴：每次弹射分裂两枚轻量子弹，形成可见的清屏扇面
+      if (this.skills.hasSynergy('bulletStorm')) {
+        for (const offset of [-0.12, 0.12]) {
+          const split = this.bullets.get() as Bullet | null;
+          if (!split) continue;
+          split.fire(bullet.x, bullet.y, angle + offset, bullet.damage * 0.62, 0, false, 0);
+        }
+      }
     } else {
       bullet.recycle();
     }
+  }
+
+  private doChainLightning(source: Zombie): void {
+    const targets = this.aliveZombies()
+      .filter((z) => z !== source && z.hp > 0)
+      .sort((a, b) => Phaser.Math.Distance.Between(source.x, source.y, a.x, a.y)
+        - Phaser.Math.Distance.Between(source.x, source.y, b.x, b.y))
+      .slice(0, 4);
+    let fromX = source.x;
+    let fromY = source.y;
+    for (const target of targets) {
+      this.lightningGraphics.lineStyle(5, 0xfff176, 0.95);
+      this.lightningGraphics.lineBetween(fromX, fromY, target.x, target.y);
+      this.lightningGraphics.lineStyle(12, 0xffd54f, 0.18);
+      this.lightningGraphics.lineBetween(fromX, fromY, target.x, target.y);
+      const died = target.takeDamage(this.skills.damage * 0.7);
+      if (died) this.killZombie(target);
+      fromX = target.x;
+      fromY = target.y;
+    }
+    this.time.delayedCall(90, () => this.lightningGraphics.clear());
+    if (targets.length > 0) AudioSystem.play('lightning', { volume: 0.7 });
   }
 
   // ─── 酸球（远程僵尸攻击） ───
@@ -539,6 +662,65 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private addOverdriveCharge(zombie: Zombie): void {
+    const wasReady = this.overdriveReady;
+    const gain = zombie.zType === 'boss' ? 32 : zombie.zType === 'swarm' ? 1 : 4;
+    this.overdriveCharge = Math.min(100, this.overdriveCharge + gain);
+    this.overdriveReady = this.overdriveCharge >= 100 && !this.skills.isOverdriveActive;
+    if (!wasReady && this.overdriveReady) {
+      const banner = this.add.text(GAME_WIDTH / 2, 930, '⚡ 过载就绪', {
+        fontFamily: FONT, fontSize: '30px', fontStyle: 'bold', color: '#66e08a',
+        stroke: '#102218', strokeThickness: 5,
+      }).setOrigin(0.5).setDepth(20);
+      this.tweens.add({ targets: banner, y: 890, alpha: 0, duration: 900, onComplete: () => banner.destroy() });
+      AudioSystem.play('overdrive', { volume: 0.55 });
+    }
+  }
+
+  /** 由 HUD 按钮调用的主动爆发技能 */
+  triggerOverdrive(): boolean {
+    if (!this.overdriveReady || this.skills.isOverdriveActive || this.finished || this.choosingUpgrade) return false;
+    this.overdriveCharge = 0;
+    this.overdriveReady = false;
+    this.overdriveTimer = 8;
+    this.skills.setOverdrive(true);
+    this.cameras.main.flash(180, 182, 255, 106);
+    this.showKillStreakBanner(99);
+    AudioSystem.play('overdrive', { volume: 1 });
+    return true;
+  }
+
+  private updateOverdrive(dt: number): void {
+    if (!this.skills.isOverdriveActive) return;
+    this.overdriveTimer -= dt;
+    if (this.overdriveTimer <= 0) {
+      this.overdriveTimer = 0;
+      this.skills.setOverdrive(false);
+      this.overdriveReady = this.overdriveCharge >= 100;
+    }
+  }
+
+  private triggerArmageddon(): void {
+    this.armageddonTimer = 0;
+    const count = this.isHordeActive ? 8 : 5;
+    const label = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT * 0.42, '末 日 审 判', {
+      fontFamily: FONT, fontSize: '54px', fontStyle: 'bold', color: '#ffb300',
+      stroke: '#401414', strokeThickness: 8,
+    }).setOrigin(0.5).setDepth(24);
+    this.tweens.add({ targets: label, alpha: 0, y: label.y - 50, duration: 900, onComplete: () => label.destroy() });
+    for (let i = 0; i < count; i++) {
+      this.time.delayedCall(i * 90, () => {
+        if (this.finished) return;
+        const target = this.aliveZombies()[i % Math.max(1, this.aliveZombies().length)];
+        const x = target?.x ?? Phaser.Math.Between(90, GAME_WIDTH - 90);
+        const y = target?.y ?? Phaser.Math.Between(160, WALL_Y - 80);
+        this.doExplosion(x, y);
+      });
+    }
+    this.cameras.main.shake(350, 0.018);
+    AudioSystem.play('armageddon', { volume: 1 });
+  }
+
   // ─── 激光束 ───
 
   private updateLaser(): void {
@@ -571,7 +753,7 @@ export class GameScene extends Phaser.Scene {
 
     // 激光伤害（每帧）
     const isCrit = this.skills.hasSynergy('fatalLaser') || Math.random() < this.skills.critChance;
-    const dmg = this.skills.laserDps * (isCrit ? 2 : 1) * (this.effectiveDelta / 1000);
+    const dmg = this.skills.laserDps * (isCrit ? 2 : 1) * this.effectiveDelta;
 
     // 碰撞检测：点到线段距离
     for (const z of alive) {
@@ -601,14 +783,10 @@ export class GameScene extends Phaser.Scene {
       ? this.skills.explosiveDamage * 1.5
       : Math.max(this.skills.explosiveDamage, EXPLOSION_DAMAGE);
 
-    // 爆炸粒子
-    this.add.particles(x, y, 'explosion_particle', {
-      speed: { min: 100, max: 320 },
-      lifespan: 450,
-      scale: { start: 1.4, end: 0 },
-      quantity: 20,
-      emitting: false,
-    }).explode(20);
+    // 爆炸粒子：共享发射器，避免尸潮连锁爆炸创建大量 GameObject
+    this.explosionEmitter.setPosition(x, y);
+    this.explosionEmitter.setParticleTint(0xff6d00);
+    this.explosionEmitter.explode(20);
 
     this.cameras.main.shake(150, 0.008);
     if (!this.skills.hasSynergy('doomsday')) {
@@ -685,21 +863,16 @@ export class GameScene extends Phaser.Scene {
 
   private killZombie(zombie: Zombie): void {
     const isBoss = zombie.zType === 'boss';
-    // 击杀爆破感：增强粒子爆发
-    const particleCount = isBoss ? 40 : 16;
-    const em = this.add.particles(zombie.x, zombie.y, 'blood', {
-      speed: { min: 80, max: 280 },
-      lifespan: 450,
-      scale: { start: isBoss ? 2 : 1.2, end: 0 },
-      quantity: particleCount,
-      emitting: false,
-      tint: isBoss ? [0xff1744, 0xffd54a, 0xff6d00] : undefined,
-    });
-    em.explode(particleCount);
+    // 击杀爆破感：共享粒子发射器，尸潮时不会为每只敌人创建新对象
+    const particleCount = isBoss ? 40 : zombie.zType === 'swarm' ? 5 : 16;
+    this.bloodEmitter.setPosition(zombie.x, zombie.y);
+    this.bloodEmitter.setParticleTint(isBoss ? 0xffd54a : 0x8bc34a);
+    this.bloodEmitter.explode(particleCount);
 
     // 击杀径向闪光 + 冲击波
-    this.showKillBurst(zombie.x, zombie.y, isBoss);
-    this.showShockwave(zombie.x, zombie.y);
+    const isSwarm = zombie.zType === 'swarm';
+    if (!isSwarm || Math.random() < 0.3) this.showKillBurst(zombie.x, zombie.y, isBoss);
+    if (!isSwarm || Math.random() < 0.2) this.showShockwave(zombie.x, zombie.y);
     if (isBoss) {
       // Boss 死亡更大冲击波 + 屏震
       this.showShockwave(zombie.x, zombie.y);
@@ -713,6 +886,7 @@ export class GameScene extends Phaser.Scene {
     // 连杀
     this.skills.onKill();
     this.streakTimer = 0;
+    this.addOverdriveCharge(zombie);
 
     // 爆炸弹效果
     if (this.skills.explosiveDamage > 0) {
@@ -720,7 +894,9 @@ export class GameScene extends Phaser.Scene {
     }
 
     // 掉金币
-    const value = Math.max(1, Math.round(zombie.coinValue * this.skills.coinMultiplier));
+    const value = Math.max(1,
+      Math.round(zombie.coinValue * this.skills.coinMultiplier) + MetaUpgrades.flatCoinBonus(),
+    );
     const c = this.coins.get() as Coin | null;
     if (c) {
       c.drop(zombie.x, zombie.y, value, (v) => {
@@ -752,6 +928,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showDamageText(x: number, y: number, dmg: number, crit: boolean): void {
+    if (!crit && this.enemyCount > 70 && Math.random() > 0.18) return;
     const isMega = crit || dmg > this.skills.damage * 3;
     const size = crit ? (dmg > 50 ? '48px' : '38px') : (dmg > 20 ? '28px' : '22px');
     const color = crit ? '#ffd54a' : '#ffffff';
@@ -873,6 +1050,8 @@ export class GameScene extends Phaser.Scene {
     const dt = delta / 1000;
 
     const alive = this.aliveZombies();
+    this.enemyCount = alive.length;
+    this.hordeProgress = this.waveManager.hordeProgress;
     this.cannon.update(dt, alive);
     this.waveManager.update(dt, alive.length);
 
@@ -893,6 +1072,15 @@ export class GameScene extends Phaser.Scene {
 
     // 连杀超时
     this.updateStreak(effectiveDt);
+    this.updateOverdrive(effectiveDt);
+
+    // 末日审判：组合技形成周期性全屏轰炸，尸潮时更密集
+    if (this.skills.hasSynergy('armageddon') && alive.length > 0) {
+      this.armageddonTimer += effectiveDt;
+      if (this.armageddonTimer >= (this.isHordeActive ? 8 : 12)) {
+        this.triggerArmageddon();
+      }
+    }
 
     // 灼烧
     this.updateBurns(effectiveDt);

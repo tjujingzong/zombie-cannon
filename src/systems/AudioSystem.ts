@@ -20,9 +20,9 @@ type SfxName =
   | 'shoot' | 'hit' | 'crit' | 'kill' | 'explosion' | 'coin'
   | 'boss' | 'wave' | 'upgrade' | 'synergy' | 'ui_click'
   | 'win' | 'lose' | 'summon' | 'acid' | 'wall_hit' | 'kill_streak'
-  | 'heal' | 'reroll';
+  | 'heal' | 'reroll' | 'horde' | 'overdrive' | 'lightning' | 'armageddon';
 
-type BgmTheme = 'normal' | 'boss' | 'menu';
+type BgmTheme = 'normal' | 'boss' | 'horde' | 'menu';
 
 class AudioSystemImpl {
   private ctx: AudioContext | null = null;
@@ -36,6 +36,7 @@ class AudioSystemImpl {
   private bgmNodes: { osc: OscillatorNode; gain: GainNode }[] = [];
   private bgmStep = 0;
   private currentTheme: BgmTheme | null = null;
+  private lastSfxAt: Partial<Record<SfxName, number>> = {};
 
   // ---- 初始化 ----
   private unlockAttached = false;
@@ -129,6 +130,12 @@ class AudioSystemImpl {
     const out = this.sfxGain!;
     const vol = opts.volume ?? 1;
     const now = ctx.currentTime;
+    const minGap: Partial<Record<SfxName, number>> = {
+      shoot: 0.035, hit: 0.04, kill: 0.045, coin: 0.03, wall_hit: 0.08,
+    };
+    const last = this.lastSfxAt[name] ?? -Infinity;
+    if (minGap[name] !== undefined && now - last < minGap[name]!) return;
+    this.lastSfxAt[name] = now;
 
     switch (name) {
       case 'shoot':      this.sfxShoot(now, vol); break;
@@ -150,6 +157,10 @@ class AudioSystemImpl {
       case 'kill_streak':this.sfxKillStreak(now, vol); break;
       case 'heal':       this.sfxHeal(now, vol); break;
       case 'reroll':     this.sfxReroll(now, vol); break;
+      case 'horde':      this.sfxHorde(now, vol); break;
+      case 'overdrive':  this.sfxOverdrive(now, vol); break;
+      case 'lightning':  this.sfxLightning(now, vol); break;
+      case 'armageddon': this.sfxArmageddon(now, vol); break;
     }
     void out;
   }
@@ -312,6 +323,24 @@ class AudioSystemImpl {
     this.osc('square', 880, t, 0.05, 0.12 * vol, this.sfxGain!);
     this.osc('square', 440, t + 0.06, 0.08, 0.12 * vol, this.sfxGain!);
   }
+  private sfxHorde(t: number, vol: number): void {
+    this.osc('sawtooth', 90, t, 0.7, 0.22 * vol, this.sfxGain!).frequency.exponentialRampToValueAtTime(38, t + 0.7);
+    this.noise(t, 0.4, 0.2 * vol, 'bandpass', 900, 0.8);
+    [196, 233, 294].forEach((f, i) => this.osc('square', f, t + i * 0.08, 0.3, 0.12 * vol, this.sfxGain!));
+  }
+  private sfxOverdrive(t: number, vol: number): void {
+    [220, 330, 494, 740, 988].forEach((f, i) => this.osc('sawtooth', f, t + i * 0.055, 0.6, 0.16 * vol, this.sfxGain!));
+    this.noise(t, 0.22, 0.2 * vol, 'highpass', 2800, 1);
+  }
+  private sfxLightning(t: number, vol: number): void {
+    this.noise(t, 0.12, 0.24 * vol, 'highpass', 3600, 1);
+    this.osc('square', 1500, t, 0.16, 0.14 * vol, this.sfxGain!).frequency.exponentialRampToValueAtTime(260, t + 0.16);
+  }
+  private sfxArmageddon(t: number, vol: number): void {
+    this.osc('sine', 70, t, 1.2, 0.28 * vol, this.sfxGain!).frequency.exponentialRampToValueAtTime(25, t + 1.2);
+    this.noise(t, 0.8, 0.28 * vol, 'lowpass', 700, 0.6);
+    this.osc('sawtooth', 440, t + 0.1, 0.7, 0.16 * vol, this.sfxGain!).frequency.exponentialRampToValueAtTime(60, t + 0.8);
+  }
 
   // ---- BGM ----
   startBGM(theme: BgmTheme = 'normal'): void {
@@ -328,7 +357,7 @@ class AudioSystemImpl {
     const bgmGain = this.bgmGain!;
 
     // 持续低音 drone（小调根音）
-    const rootFreq = theme === 'boss' ? 55 : 49; // G1 / G#1
+    const rootFreq = theme === 'boss' ? 55 : theme === 'horde' ? 41 : 49; // G1 / G#1
     const drone = ctx.createOscillator();
     drone.type = 'sawtooth';
     drone.frequency.value = rootFreq;
@@ -344,7 +373,7 @@ class AudioSystemImpl {
     // pad：缓慢和声（小调三和弦 + 七音）
     const padNotes = theme === 'boss'
       ? [196, 233, 294, 349]   // G Bb D F —— 更紧张
-      : [196, 233, 294];        // G Bb D
+      : theme === 'horde' ? [164, 196, 233, 277] : [196, 233, 294];
     padNotes.forEach((f) => {
       const o = ctx.createOscillator();
       o.type = 'sine';
@@ -366,10 +395,12 @@ class AudioSystemImpl {
     });
 
     // 节拍 + 旋律：用 setInterval 调度（每 0.5 秒一步）
-    const intervalMs = theme === 'boss' ? 220 : 280;
+    const intervalMs = theme === 'boss' ? 220 : theme === 'horde' ? 150 : 280;
     const scale = theme === 'boss'
       ? [55, 58, 62, 65, 69, 73, 78, 82]  // 更激进的半音阶
-      : [49, 52, 58, 62, 65, 69, 73, 78]; // 小调音阶
+      : theme === 'horde'
+        ? [41, 46, 49, 55, 58, 62, 65, 70]
+        : [49, 52, 58, 62, 65, 69, 73, 78]; // 小调音阶
 
     this.bgmTimer = window.setInterval(() => {
       if (!this.ctx || this.muted) return;
@@ -380,7 +411,7 @@ class AudioSystemImpl {
       if (step % 4 === 0) {
         const drum = this.osc('sine', 90, t, 0.18, theme === 'boss' ? 0.22 : 0.16, this.bgmGain!);
         drum.frequency.exponentialRampToValueAtTime(40, t + 0.18);
-        if (theme === 'boss') {
+        if (theme === 'boss' || theme === 'horde') {
           this.noise(t, 0.05, 0.1, 'highpass', 3000, 1);
         }
       }
@@ -393,7 +424,7 @@ class AudioSystemImpl {
       }
 
       // boss 主题：加入不和谐音
-      if (theme === 'boss' && step % 8 === 4) {
+      if ((theme === 'boss' || theme === 'horde') && step % 8 === 4) {
         this.osc('sawtooth', 116, t, 0.4, 0.05, this.bgmGain!);
       }
     }, intervalMs);

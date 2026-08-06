@@ -18,6 +18,10 @@ export class UIScene extends Phaser.Scene {
   private killText!: Phaser.GameObjects.Text;
   private comboText!: Phaser.GameObjects.Text;
   private bossWaveText!: Phaser.GameObjects.Text;
+  private hordeText!: Phaser.GameObjects.Text;
+  private overdriveBar!: Phaser.GameObjects.Graphics;
+  private overdriveText!: Phaser.GameObjects.Text;
+  private overdriveButton!: Phaser.GameObjects.Container;
   private synergyIcons: Phaser.GameObjects.Text[] = [];
   private pendingIcons: Phaser.GameObjects.Text[] = [];
   private pauseGroup: Phaser.GameObjects.GameObject[] = [];
@@ -54,6 +58,10 @@ export class UIScene extends Phaser.Scene {
       fontFamily: FONT, fontSize: '24px', fontStyle: 'bold', color: '#ff1744',
       stroke: '#1a2530', strokeThickness: 4,
     }).setOrigin(0.5).setAlpha(0);
+    this.hordeText = this.add.text(48, 92, '', {
+      fontFamily: FONT, fontSize: '20px', fontStyle: 'bold', color: '#b6ff6a',
+      stroke: '#102218', strokeThickness: 3,
+    }).setOrigin(0, 0.5).setAlpha(0);
 
     // 连杀显示
     this.streakText = this.add
@@ -77,6 +85,12 @@ export class UIScene extends Phaser.Scene {
     // 墙血条 + 护盾条
     this.wallBar = this.add.graphics();
     this.shieldBar = this.add.graphics();
+    this.overdriveBar = this.add.graphics().setDepth(15);
+    this.overdriveText = this.add.text(40, 974, '⚡ 过载 0%', {
+      fontFamily: FONT, fontSize: '18px', fontStyle: 'bold', color: '#95a9b6',
+      stroke: '#101820', strokeThickness: 3,
+    }).setDepth(15);
+    this.overdriveButton = this.createOverdriveButton();
 
     // 底部技能图标区
     this.updateSynergyDisplay();
@@ -168,6 +182,28 @@ export class UIScene extends Phaser.Scene {
     });
   }
 
+  private createOverdriveButton(): Phaser.GameObjects.Container {
+    const w = 150, h = 48;
+    const bg = this.add.graphics();
+    const txt = this.add.text(0, 0, '⚡ 过载', {
+      fontFamily: FONT, fontSize: '20px', fontStyle: 'bold', color: '#788894',
+    }).setOrigin(0.5);
+    const button = this.add.container(GAME_WIDTH - 112, 990, [bg, txt])
+      .setSize(w, h).setDepth(16).setInteractive({ useHandCursor: true });
+    button.on('pointerup', () => {
+      if (this.game_?.triggerOverdrive()) AudioSystem.play('ui_click');
+    });
+    (button as Phaser.GameObjects.Container & { _draw?: (ready: boolean, active: boolean) => void })._draw = (ready, active) => {
+      bg.clear();
+      bg.fillStyle(0x000000, 0.35).fillRoundedRect(-w / 2 + 2, -h / 2 + 3, w, h, 12);
+      bg.fillStyle(active ? 0x007c91 : ready ? 0x2f8f63 : 0x293640, 1).fillRoundedRect(-w / 2, -h / 2, w, h, 12);
+      bg.fillStyle(0xffffff, active || ready ? 0.2 : 0.06).fillRoundedRect(-w / 2, -h / 2, w, h / 2, { tl: 12, tr: 12, bl: 0, br: 0 });
+      txt.setColor(active || ready ? '#ffffff' : '#788894');
+      txt.setText(active ? '⚡ 爆发中' : ready ? '⚡ 释放' : '⚡ 过载');
+    };
+    return button;
+  }
+
   update(): void {
     if (!this.game_) return;
     this.coinText.setText(`${this.game_.runCoins}`);
@@ -180,6 +216,11 @@ export class UIScene extends Phaser.Scene {
       this.bossWaveText.setAlpha(pulse);
     } else {
       this.bossWaveText.setAlpha(0);
+    }
+    if (this.game_.isHordeActive) {
+      this.hordeText.setText(`尸潮 · ${this.game_.enemyCount}`).setAlpha(1);
+    } else {
+      this.hordeText.setAlpha(0);
     }
 
     // 连杀
@@ -227,6 +268,19 @@ export class UIScene extends Phaser.Scene {
     if (shieldRatio > 0) {
       this.shieldBar.fillStyle(0x42a5f5, 0.7).fillRoundedRect(42, y - 6, (w - 4) * shieldRatio, 4, 2);
     }
+
+    // 过载槽与主动按钮
+    const charge = Phaser.Math.Clamp(this.game_.overdriveCharge / 100, 0, 1);
+    const active = this.game_.skills?.isOverdriveActive ?? false;
+    const ready = this.game_.overdriveReady;
+    this.overdriveBar.clear();
+    this.overdriveBar.fillStyle(0x000000, 0.5).fillRoundedRect(40, 988, 440, 12, 6);
+    this.overdriveBar.fillStyle(active ? 0x4de7ff : ready ? 0x66e08a : 0x607d8b, 1)
+      .fillRoundedRect(42, 990, Math.max(6, 436 * (active ? 1 : charge)), 8, 4);
+    this.overdriveText.setText(active ? '⚡ 过载 · 火力全开' : `⚡ 过载 ${Math.round(charge * 100)}%`)
+      .setColor(active ? '#4de7ff' : ready ? '#66e08a' : '#95a9b6');
+    const draw = (this.overdriveButton as Phaser.GameObjects.Container & { _draw?: (r: boolean, a: boolean) => void })._draw;
+    draw?.(ready, active);
 
     // 刷新组合技显示（仅在组合技/待激活列表变化时重建，避免每帧 GC）
     const synHash = JSON.stringify({

@@ -1,10 +1,17 @@
 import type { LevelConfig, SpawnGroup } from '../data/levels';
-import type { ZombieTypeKey } from '../data/balance';
+import {
+  HORDE_BASE_COUNT,
+  HORDE_COUNT_PER_LEVEL,
+  HORDE_MAX_COUNT,
+  HORDE_SPAWN_INTERVAL,
+  type ZombieTypeKey,
+} from '../data/balance';
 
 // 单个待执行的刷怪任务
 interface SpawnTask {
   type: ZombieTypeKey;
   remaining: number;
+  total: number;
   interval: number;
   nextAt: number; // 下一次刷怪的波内时间（秒）
 }
@@ -23,8 +30,11 @@ export class WaveManager {
   /** 怪物数量倍率（用于战前免费选技能后的难度平衡） */
   private monsterMultiplier: number;
   state: WaveState = 'idle';
+  isHordeWave = false;
+  hordeProgress = 0;
 
   onSpawn: (type: ZombieTypeKey) => void = () => {};
+  onHordeStart: (count: number) => void = () => {};
 
   constructor(level: LevelConfig, monsterMultiplier = 1) {
     this.level = level;
@@ -56,12 +66,35 @@ export class WaveManager {
     }
     this.waveIndex++;
     this.waveTime = 0;
-    this.tasks = this.level.waves[this.waveIndex].groups.map((gr: SpawnGroup) => ({
-      type: gr.type,
-      remaining: Math.max(1, Math.round(gr.count * this.monsterMultiplier)),
-      interval: gr.interval,
-      nextAt: gr.delay ?? 0,
-    }));
+    this.isHordeWave = this.waveIndex === this.level.waves.length - 1;
+    this.hordeProgress = 0;
+    this.tasks = this.level.waves[this.waveIndex].groups.map((gr: SpawnGroup) => {
+      const total = Math.max(1, Math.round(gr.count * this.monsterMultiplier));
+      return {
+        type: gr.type,
+        remaining: total,
+        total,
+        interval: gr.interval,
+        nextAt: gr.delay ?? 0,
+      };
+    });
+
+    if (this.isHordeWave) {
+      const rawCount = HORDE_BASE_COUNT + this.level.id * HORDE_COUNT_PER_LEVEL;
+      const swarmTotal = Math.min(HORDE_MAX_COUNT, Math.round(rawCount * this.monsterMultiplier));
+      const fastTotal = Math.max(8, Math.round((8 + this.level.id * 0.45) * this.monsterMultiplier));
+      this.tasks.push(
+        {
+          type: 'swarm', remaining: swarmTotal, total: swarmTotal,
+          interval: Math.max(0.055, HORDE_SPAWN_INTERVAL - this.level.id * 0.0005), nextAt: 0.7,
+        },
+        {
+          type: 'fast', remaining: fastTotal, total: fastTotal,
+          interval: 0.18, nextAt: 2.2,
+        },
+      );
+      this.onHordeStart(swarmTotal + fastTotal);
+    }
     this.state = 'spawning';
     return true;
   }
@@ -80,6 +113,11 @@ export class WaveManager {
           spawnedThisFrame++;
         }
         if (task.remaining > 0) allDone = false;
+      }
+      if (this.isHordeWave) {
+        const total = this.tasks.reduce((sum, task) => sum + task.total, 0);
+        const remaining = this.tasks.reduce((sum, task) => sum + task.remaining, 0);
+        this.hordeProgress = total > 0 ? 1 - remaining / total : 1;
       }
       if (allDone) {
         this.state = 'clearing';

@@ -102,6 +102,11 @@ export class BootScene extends Phaser.Scene {
     const w = size;
     const h = size * 1.25;
     const cx = w / 2;
+    // 地面阴影和不对称腿部，让小尺寸单位在尸潮中仍然有轮廓
+    g.fillStyle(0x000000, 0.28).fillEllipse(cx, h * 0.96, w * 0.62, w * 0.14);
+    g.fillStyle(bodyColor, 1);
+    g.fillRoundedRect(cx - w * 0.2, h * 0.72, w * 0.14, h * 0.24, w * 0.06);
+    g.fillRoundedRect(cx + w * 0.06, h * 0.74, w * 0.14, h * 0.22, w * 0.06);
     // 双臂（前伸向下）
     g.fillStyle(bodyColor, 1);
     g.fillRoundedRect(cx - w * 0.46, h * 0.42, w * 0.2, h * 0.4, w * 0.09);
@@ -125,6 +130,12 @@ export class BootScene extends Phaser.Scene {
     // 嘴
     g.fillStyle(0x2d0a0a, 1);
     g.fillRect(cx - w * 0.08, h * 0.29, w * 0.16, w * 0.04);
+    // 眉骨、高光和破损衣角
+    g.fillStyle(0x000000, 0.24).fillEllipse(cx - w * 0.16, h * 0.16, w * 0.14, w * 0.05);
+    g.fillStyle(0xffffff, 0.14).fillRoundedRect(cx - w * 0.2, h * 0.4, w * 0.12, h * 0.17, 3);
+    g.fillStyle(0x000000, 0.25);
+    g.fillTriangle(cx - w * 0.28, h * 0.78, cx - w * 0.08, h * 0.78, cx - w * 0.2, h * 0.88);
+    g.fillTriangle(cx + w * 0.1, h * 0.78, cx + w * 0.28, h * 0.78, cx + w * 0.2, h * 0.88);
     // 额外装饰
     if (extras) extras(g, cx, h, w);
     g.generateTexture(key, w, h);
@@ -132,6 +143,11 @@ export class BootScene extends Phaser.Scene {
   }
 
   private makeZombies(): void {
+    // 尸潮腐尸：低矮、肩膀外扩，缩小后仍能形成密集的群体轮廓
+    this.drawZombie('zombie_swarm', 0x355a31, 0x6e9b58, 64, (g, cx, h, w) => {
+      g.fillStyle(0xb7d47c, 0.8).fillCircle(cx - w * 0.09, h * 0.2, w * 0.035);
+      g.fillStyle(0xffd54f, 0.8).fillCircle(cx + w * 0.11, h * 0.2, w * 0.035);
+    });
     // 原始四种
     this.drawZombie('zombie_normal', 0x4f7a3a, 0x7aa85c, 64);
     this.drawZombie('zombie_fast', 0x3a6a7a, 0x66a3b5, 64);
@@ -193,9 +209,12 @@ export class BootScene extends Phaser.Scene {
 
   private makeCannon(): void {
     let g = this.g();
-    g.fillStyle(0x37474f, 1).fillRoundedRect(0, 18, 120, 46, 12);
-    g.fillStyle(0x546e7a, 1).fillCircle(60, 26, 34);
-    g.fillStyle(0x455a64, 1).fillCircle(60, 26, 24);
+    g.fillStyle(0x263238, 1).fillRoundedRect(0, 18, 120, 46, 12);
+    g.fillStyle(0x455a64, 1).fillRoundedRect(6, 22, 108, 36, 10);
+    g.fillStyle(0x607d8b, 1).fillCircle(60, 26, 34);
+    g.fillStyle(0x263238, 1).fillCircle(60, 26, 25);
+    g.lineStyle(3, 0x90a4ae, 0.7).strokeCircle(60, 26, 19);
+    g.fillStyle(0xffd54a, 0.75).fillCircle(60, 26, 5);
     g.generateTexture('cannon_base', 120, 64);
     g.destroy();
 
@@ -209,7 +228,8 @@ export class BootScene extends Phaser.Scene {
 
   private makeWall(): void {
     const g = this.g();
-    g.fillStyle(0x8d6e63, 1).fillRect(0, 0, 120, 48);
+    g.fillStyle(0x6d4c41, 1).fillRect(0, 0, 120, 48);
+    g.fillStyle(0x9e8277, 1).fillRect(0, 0, 120, 5);
     g.fillStyle(0x795548, 1);
     for (let row = 0; row < 2; row++) {
       const off = row % 2 === 0 ? 0 : 30;
@@ -217,6 +237,9 @@ export class BootScene extends Phaser.Scene {
         g.fillRect(x + off + 2, row * 24 + 2, 56, 20);
       }
     }
+    g.lineStyle(2, 0x4e342e, 0.8).lineBetween(0, 23, 120, 23);
+    g.fillStyle(0xd7ccc8, 0.2).fillRect(8, 7, 3, 12);
+    g.fillStyle(0x2f1d1b, 0.55).fillRect(84, 29, 24, 3);
     g.generateTexture('wall_tile', 120, 48);
     g.destroy();
   }
