@@ -210,7 +210,7 @@ export class LevelSelectScene extends Phaser.Scene {
       );
       // 关卡题目（完整名称，自动换行最多两行）
       const nameTxt = this.add.text(x, y + 2, name, {
-        ...textStyle(14, '#ffffff'), fontStyle: 'bold',
+        ...textStyle(18, '#ffffff'), fontStyle: 'bold',
         align: 'center', wordWrap: { width: w - 8 },
         stroke: '#000000', strokeThickness: 2,
       }).setOrigin(0.5);

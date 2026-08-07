@@ -76,6 +76,8 @@ export class GameScene extends Phaser.Scene {
   private overdriveTimer = 0;
   private armageddonTimer = 0;
   private hordeBannerShown = false;
+  private synergyQueue: SynergyDef[] = [];
+  private synergyNoticeActive = false;
 
   // 供 UIScene 读取的公开状态
   runCoins = 0;
@@ -129,6 +131,8 @@ export class GameScene extends Phaser.Scene {
     this.overdriveTimer = 0;
     this.armageddonTimer = 0;
     this.hordeBannerShown = false;
+    this.synergyQueue = [];
+    this.synergyNoticeActive = false;
   }
 
   create(): void {
@@ -999,6 +1003,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showSynergyNotification(syn: SynergyDef): void {
+    this.synergyQueue.push(syn);
+    this.displayNextSynergyNotification();
+  }
+
+  private displayNextSynergyNotification(): void {
+    if (this.synergyNoticeActive || this.synergyQueue.length === 0) return;
+    this.synergyNoticeActive = true;
+    const syn = this.synergyQueue.shift()!;
     const bg = this.add.graphics().setDepth(25);
     bg.fillStyle(0xffa726, 0.9).fillRoundedRect(GAME_WIDTH / 2 - 240, 160, 480, 90, 16);
     bg.fillStyle(0xffffff, 0.15).fillRoundedRect(GAME_WIDTH / 2 - 240, 160, 480, 45, { tl: 16, tr: 16, bl: 0, br: 0 });
@@ -1017,7 +1029,11 @@ export class GameScene extends Phaser.Scene {
     const elements = [bg, icon, title, desc, label];
     this.tweens.add({
       targets: elements, alpha: 0, duration: 400, delay: 3000,
-      onComplete: () => elements.forEach((e) => e.destroy()),
+      onComplete: () => {
+        elements.forEach((e) => e.destroy());
+        this.synergyNoticeActive = false;
+        this.time.delayedCall(120, () => this.displayNextSynergyNotification());
+      },
     });
   }
 
