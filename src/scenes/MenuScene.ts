@@ -37,12 +37,16 @@ export class MenuScene extends Phaser.Scene {
       });
     }
 
-    // 标题带光晕
+    // 标题瞄准环
     const titleGlow = this.add.graphics();
-    titleGlow.fillStyle(0xffd54a, 0.18).fillCircle(cx, 300, 240);
-    titleGlow.fillStyle(0xffd54a, 0.08).fillCircle(cx, 300, 320);
+    titleGlow.fillStyle(0xffd54a, 0.045).fillRect(0, 210, GAME_WIDTH, 180);
+    titleGlow.lineStyle(3, 0xffd54a, 0.15).strokeCircle(cx, 300, 238);
+    titleGlow.lineStyle(2, 0x8fbf8f, 0.12).strokeCircle(cx, 300, 310);
+    titleGlow.lineStyle(3, 0xffd54a, 0.12);
+    titleGlow.lineBetween(24, 300, 154, 300);
+    titleGlow.lineBetween(GAME_WIDTH - 154, 300, GAME_WIDTH - 24, 300);
     this.add.text(cx, 300, '僵尸炮台', titleStyle(96)).setOrigin(0.5);
-    this.add.text(cx, 400, 'ZOMBIE CANNON', textStyle(30, '#8fbf8f')).setOrigin(0.5);
+    this.add.text(cx, 400, '尸潮生存防线', textStyle(30, '#8fbf8f')).setOrigin(0.5);
 
     // 展示炮台
     this.add.image(cx, 640, 'cannon_base').setScale(2);

@@ -28,6 +28,7 @@ export class BootScene extends Phaser.Scene {
       this.makeBulletTrail();
       this.makeShockwave();
       this.makeBossCrown();
+      this.makeTacticalEffects();
     } catch (e) {
       // eslint-disable-next-line no-console
       console.error('[Boot] 纹理生成失败:', e);
@@ -213,6 +214,24 @@ export class BootScene extends Phaser.Scene {
       g.fillStyle(0xe1f5fe, 1).fillCircle(cx, h * 0.47, 5);
       g.lineStyle(2, 0xb388ff, 0.8).lineBetween(cx, h * 0.3, cx + w * 0.28, h * 0.18);
     });
+    // 掘地伏击者：土甲、利爪与头灯
+    this.drawZombie('zombie_burrower', 0x493226, 0x8d6e63, 64, (g, cx, h, w) => {
+      g.fillStyle(0xffc107, 1).fillCircle(cx, h * 0.17, 5);
+      g.fillStyle(0x3e2723, 1).fillTriangle(cx - w * 0.42, h * 0.68, cx - w * 0.58, h * 0.78, cx - w * 0.32, h * 0.75);
+      g.fillTriangle(cx + w * 0.42, h * 0.68, cx + w * 0.58, h * 0.78, cx + w * 0.32, h * 0.75);
+    });
+    // 尸群导体：胸口线圈和双肩电极
+    this.drawZombie('zombie_conductor', 0x124e5b, 0x26a69a, 64, (g, cx, h, w) => {
+      g.lineStyle(3, 0x80deea, 1).strokeCircle(cx, h * 0.5, w * 0.19);
+      g.fillStyle(0xe0f7fa, 1).fillCircle(cx, h * 0.5, 5);
+      g.fillStyle(0x4dd0e1, 1).fillCircle(cx - w * 0.34, h * 0.35, 5).fillCircle(cx + w * 0.34, h * 0.35, 5);
+    });
+    // 血肉汲取者：猩红储血囊与导管
+    this.drawZombie('zombie_siphon', 0x5b1f2a, 0x9f3a48, 64, (g, cx, h, w) => {
+      g.fillStyle(0xef5350, 0.85).fillCircle(cx, h * 0.53, w * 0.18);
+      g.lineStyle(3, 0xff8a80, 0.8).lineBetween(cx, h * 0.53, cx + w * 0.34, h * 0.72);
+      g.fillStyle(0xffcdd2, 0.75).fillCircle(cx - w * 0.08, h * 0.5, 3);
+    });
   }
 
   private makeCoin(): void {
@@ -353,6 +372,12 @@ export class BootScene extends Phaser.Scene {
       g.fillTriangle(56, 32, 40, 18, 40, 46);
       g.fillStyle(0xffd54a, 1).fillCircle(32, 32, 5);
     });
+    mk('icon_gravity', (g) => {
+      g.fillStyle(0x101020, 1).fillCircle(32, 32, 13);
+      g.lineStyle(4, 0xb388ff, 1).strokeCircle(32, 32, 22);
+      g.lineStyle(3, 0x4fc3f7, 0.9).arc(32, 32, 28, 0.2, 4.7);
+      g.fillStyle(0xffffff, 1).fillCircle(50, 15, 4);
+    });
 
     // ── 防御类 ──
     mk('icon_repair', (g) => {
@@ -377,6 +402,18 @@ export class BootScene extends Phaser.Scene {
       g.lineStyle(4, 0x42a5f5, 1);
       g.strokeCircle(32, 32, 24);
       g.fillStyle(0xbbdefb, 1).fillCircle(32, 32, 10);
+    });
+    mk('icon_minefield', (g) => {
+      g.fillStyle(0x37474f, 1).fillCircle(32, 36, 20);
+      g.lineStyle(4, 0xffca28, 1).strokeCircle(32, 36, 13);
+      g.fillStyle(0xef5350, 1).fillCircle(32, 36, 5);
+      g.fillStyle(0x90a4ae, 1).fillRect(29, 8, 6, 12);
+    });
+    mk('icon_field_medic', (g) => {
+      g.fillStyle(0x2e7d32, 1).fillRoundedRect(8, 12, 48, 44, 8);
+      g.fillStyle(0xe8f5e9, 1).fillRect(27, 18, 10, 32);
+      g.fillRect(16, 29, 32, 10);
+      g.fillStyle(0xffd54f, 1).fillCircle(50, 14, 6);
     });
 
     // ── 辅助类 ──
@@ -505,6 +542,35 @@ export class BootScene extends Phaser.Scene {
       g.fillStyle(0xffd54a, 1).fillCircle(32, 32, 8);
       g.fillStyle(0xffffff, 0.6).fillCircle(32, 32, 3);
     });
+    mk('icon_thermal_shock', (g) => {
+      g.fillStyle(0xff6d00, 1).fillCircle(24, 32, 17);
+      g.fillStyle(0x4fc3f7, 0.9).fillCircle(40, 32, 17);
+      g.fillStyle(0xffffff, 1).fillCircle(32, 32, 7);
+    });
+    mk('icon_singularity_bomb', (g) => {
+      g.fillStyle(0x16102a, 1).fillCircle(32, 32, 16);
+      g.lineStyle(5, 0xb388ff, 1).strokeCircle(32, 32, 24);
+      g.fillStyle(0xff6d00, 1).fillTriangle(32, 2, 26, 18, 38, 18);
+    });
+    mk('icon_cryo_mine', (g) => {
+      g.fillStyle(0x37474f, 1).fillCircle(32, 36, 20);
+      g.lineStyle(4, 0x80deea, 1).strokeCircle(32, 36, 14);
+      g.lineStyle(3, 0xe0f7fa, 1).lineBetween(32, 15, 32, 55);
+      g.lineBetween(15, 36, 49, 36);
+    });
+    mk('icon_drone_swarm', (g) => {
+      g.fillStyle(0x90a4ae, 1);
+      g.fillTriangle(6, 22, 24, 12, 20, 32);
+      g.fillTriangle(40, 32, 44, 12, 62, 22);
+      g.fillTriangle(18, 48, 32, 34, 46, 48);
+      g.fillStyle(0x4fc3f7, 1).fillCircle(20, 23, 4).fillCircle(44, 23, 4).fillCircle(32, 44, 4);
+    });
+    mk('icon_field_hospital', (g) => {
+      g.fillStyle(0x1565c0, 0.35).fillCircle(32, 32, 28);
+      g.lineStyle(3, 0x64b5f6, 1).strokeCircle(32, 32, 26);
+      g.fillStyle(0xe8f5e9, 1).fillRect(27, 13, 10, 38);
+      g.fillRect(13, 27, 38, 10);
+    });
 
     // ── 结算星星 ──
     mk('star', (g) => {
@@ -579,6 +645,24 @@ export class BootScene extends Phaser.Scene {
     g = this.g();
     g.fillStyle(0xffffff, 1).fillRect(0, 0, 8, 8);
     g.generateTexture('pixel', 8, 8);
+    g.destroy();
+  }
+
+  private makeTacticalEffects(): void {
+    let g = this.g();
+    g.fillStyle(0x10101c, 0.9).fillCircle(48, 48, 18);
+    g.lineStyle(5, 0x7e57c2, 0.8).strokeCircle(48, 48, 29);
+    g.lineStyle(3, 0x4fc3f7, 0.8).arc(48, 48, 40, 0.3, 5.2);
+    g.fillStyle(0xffffff, 0.9).fillCircle(74, 24, 4);
+    g.generateTexture('gravity_field', 96, 96);
+    g.destroy();
+
+    g = this.g();
+    g.fillStyle(0x263238, 1).fillCircle(24, 24, 18);
+    g.lineStyle(3, 0x78909c, 1).strokeCircle(24, 24, 15);
+    g.fillStyle(0xffca28, 1).fillCircle(24, 24, 7);
+    g.fillStyle(0xef5350, 1).fillCircle(24, 24, 3);
+    g.generateTexture('field_mine', 48, 48);
     g.destroy();
   }
 

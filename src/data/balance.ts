@@ -40,6 +40,9 @@ export const ZOMBIE_TYPES: Record<string, ZombieStats> = {
   leaper:      { hp: 32,  speed: 62,  damage: 9,  coin: 15,  scale: 0.95, texture: 'zombie_leaper',     tint: 0xffffff },  // 周期冲刺
   splitter:    { hp: 42,  speed: 48,  damage: 6,  coin: 14,  scale: 1.05, texture: 'zombie_splitter',   tint: 0xffffff },  // 死亡分裂
   jammer:      { hp: 58,  speed: 42,  damage: 5,  coin: 22,  scale: 1.1,  texture: 'zombie_jammer',     tint: 0xffffff },  // 压制炮台攻速
+  burrower:    { hp: 38,  speed: 58,  damage: 12, coin: 18,  scale: 0.95, texture: 'zombie_burrower',   tint: 0xffffff },  // 潜地接近后破土
+  conductor:   { hp: 82,  speed: 36,  damage: 7,  coin: 28,  scale: 1.15, texture: 'zombie_conductor',  tint: 0xffffff },  // 为附近单位减伤
+  siphon:      { hp: 68,  speed: 46,  damage: 11, coin: 24,  scale: 1.08, texture: 'zombie_siphon',     tint: 0xffffff },  // 攻墙吸血并治疗队友
 };
 
 export type ZombieTypeKey = keyof typeof ZOMBIE_TYPES;
@@ -78,12 +81,12 @@ export const ZOMBIE_CODEX: Record<ZombieTypeKey, ZombieCodex> = {
   },
   tank: {
     role: '重甲肉盾', behavior: '血厚、速度慢，吸收火力掩护同伴。',
-    weaknesses: ['灼烧（持续伤害）', '暴击', '百分比伤害'], counter: '用灼烧弹+暴击组合（爆燃弹）高效削减。',
+    weaknesses: ['持续灼烧', '暴击', '百分比伤害'], counter: '用灼烧弹和暴击触发爆燃弹，高效削减重甲单位。',
     firstSeen: 2, threat: 3,
   },
   boss: {
     role: '尸潮之王', behavior: '血量极高，周期召唤普通僵尸，触墙伤害巨大。',
-    weaknesses: ['持续输出', '组合技爆发'], counter: '囤满激光+导弹+爆炸（末日审判）一波带走，注意控场小怪。',
+    weaknesses: ['持续输出', '组合技爆发'], counter: '集齐激光、导弹和爆炸触发末日审判，同时控制召唤物。',
     firstSeen: 5, threat: 5,
   },
   spitter: {
@@ -107,8 +110,8 @@ export const ZOMBIE_CODEX: Record<ZombieTypeKey, ZombieCodex> = {
     firstSeen: 5, threat: 4,
   },
   ghost: {
-    role: '幽灵', behavior: '周期性隐身，隐身期间无法被命中（灼烧仍生效）。',
-    weaknesses: ['灼烧（持续生效）', '现身窗口'], counter: '上灼烧弹让 DOT 持续生效；把握现身瞬间爆发输出。',
+    role: '幽灵', behavior: '周期性隐身，隐身期间无法被命中，但已有灼烧仍会生效。',
+    weaknesses: ['持续灼烧', '现身窗口'], counter: '先附加灼烧，再把握现身窗口集中输出。',
     firstSeen: 6, threat: 4,
   },
   berserker: {
@@ -136,6 +139,21 @@ export const ZOMBIE_CODEX: Record<ZombieTypeKey, ZombieCodex> = {
     weaknesses: ['处决', '追踪攻击'], counter: '尽快用处决协议或空中支援点杀。',
     firstSeen: 8, threat: 5,
   },
+  burrower: {
+    role: '掘地伏击者', behavior: '潜入地下高速推进，接近防线后破土并恢复可攻击状态。',
+    weaknesses: ['地雷', '破土爆发', '减速'], counter: '在防线前布置地雷，等它破土后用冰冻与爆发火力截杀。',
+    firstSeen: 6, threat: 4,
+  },
+  conductor: {
+    role: '尸群导体', behavior: '展开电浆链接，使附近僵尸获得伤害减免。',
+    weaknesses: ['优先击杀', '处决', '聚怪'], counter: '先击杀导体解除群体减伤，再处理被保护的尸群。',
+    firstSeen: 7, threat: 5,
+  },
+  siphon: {
+    role: '血肉汲取者', behavior: '每次攻击城墙都会恢复自身，并治疗周围受伤单位。',
+    weaknesses: ['远程击杀', '持续控制'], counter: '不要让它接触城墙，使用引力场和冰冻技能延缓推进。',
+    firstSeen: 8, threat: 5,
+  },
 };
 
 // 远程攻击僵尸类型
@@ -157,6 +175,10 @@ export const GHOST_PHASE_INTERVAL = 4.0; // 幽灵隐身周期（秒）
 export const GHOST_VISIBLE_TIME = 2.5; // 幽灵可见时间
 export const SUMMONER_INTERVAL = 5.0; // 召唤者召唤间隔
 export const LEAPER_INTERVAL = 3.2; // 跃袭者冲刺间隔
+export const BURROW_DURATION = 2.8;
+export const CONDUCTOR_AURA_RANGE = 175;
+export const CONDUCTOR_DAMAGE_REDUCTION = 0.34;
+export const SIPHON_HEAL_RATIO = 0.12;
 export const EXPLOSION_RADIUS = 100; // 爆炸范围
 export const EXPLOSION_DAMAGE = 15; // 爆炸对周围僵尸伤害
 

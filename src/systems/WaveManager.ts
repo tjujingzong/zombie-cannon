@@ -95,7 +95,19 @@ export class WaveManager {
           interval: 0.18, nextAt: 2.2,
         },
       );
-      this.onHordeStart(swarmTotal + fastTotal);
+      if (this.level.id >= 6) {
+        const burrowers = Math.min(14, 3 + Math.floor(this.level.id / 5));
+        const conductors = Math.min(6, 1 + Math.floor(this.level.id / 12));
+        const siphons = Math.min(7, Math.floor(this.level.id / 10));
+        this.tasks.push(
+          { type: 'burrower', remaining: burrowers, total: burrowers, interval: 0.52, nextAt: 1.3 },
+          { type: 'conductor', remaining: conductors, total: conductors, interval: 2.2, nextAt: 0.9 },
+        );
+        if (siphons > 0) {
+          this.tasks.push({ type: 'siphon', remaining: siphons, total: siphons, interval: 1.9, nextAt: 3.2 });
+        }
+      }
+      this.onHordeStart(this.tasks.reduce((sum, task) => sum + task.total, 0));
     }
     this.state = 'spawning';
     return true;

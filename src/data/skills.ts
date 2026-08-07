@@ -56,7 +56,7 @@ export const SKILLS: SkillDef[] = [
     icon: 'icon_crit', rarity: 'common', category: 'offense', maxLevel: 5, perLevel: 0.12,
   },
   {
-    key: 'burnBullets', name: '灼烧弹', desc: '子弹附带灼烧 (6/秒, 3秒)',
+    key: 'burnBullets', name: '灼烧弹', desc: '命中附带持续3秒的灼烧伤害',
     icon: 'icon_burn', rarity: 'rare', category: 'offense', maxLevel: 3, perLevel: 2,
   },
   {
@@ -72,7 +72,7 @@ export const SKILLS: SkillDef[] = [
     icon: 'icon_explosion', rarity: 'rare', category: 'offense', maxLevel: 3, perLevel: 1,
   },
   {
-    key: 'laserBeam', name: '激光束', desc: '持续激光 (伤害=攻击×0.5/帧)',
+    key: 'laserBeam', name: '激光束', desc: '持续发射贯穿敌群的高能光束',
     icon: 'icon_laser', rarity: 'legendary', category: 'offense', maxLevel: 1, perLevel: 1,
   },
   {
@@ -86,6 +86,10 @@ export const SKILLS: SkillDef[] = [
   {
     key: 'airSupport', name: '空中支援', desc: '周期发射无人机追踪弹',
     icon: 'icon_air_support', rarity: 'epic', category: 'offense', maxLevel: 3, perLevel: 1,
+  },
+  {
+    key: 'gravityWell', name: '引力奇点', desc: '周期生成引力场，聚拢并持续伤害敌群',
+    icon: 'icon_gravity', rarity: 'legendary', category: 'offense', maxLevel: 3, perLevel: 1,
   },
 
   // ── 防御类 ──
@@ -104,6 +108,14 @@ export const SKILLS: SkillDef[] = [
   {
     key: 'energyShield', name: '能量护盾', desc: '每10秒为墙体生成50点护盾',
     icon: 'icon_shield', rarity: 'epic', category: 'defense', maxLevel: 3, perLevel: 25,
+  },
+  {
+    key: 'minefield', name: '防线雷区', desc: '在城墙前持续部署范围地雷',
+    icon: 'icon_minefield', rarity: 'rare', category: 'defense', maxLevel: 3, perLevel: 1,
+  },
+  {
+    key: 'fieldMedic', name: '战地修复', desc: '累计击杀后自动修复城墙',
+    icon: 'icon_field_medic', rarity: 'rare', category: 'defense', maxLevel: 3, perLevel: 0.02,
   },
 
   // ── 辅助类 ──
@@ -221,6 +233,41 @@ export const SYNERGIES: SynergyDef[] = [
     desc: '激光+导弹+爆炸同时激活时，全屏轰炸一波',
     icon: 'icon_armageddon',
     requires: [{ skill: 'laserBeam', minLevel: 1 }, { skill: 'homingMissile', minLevel: 1 }, { skill: 'explosiveRound', minLevel: 1 }],
+  },
+  {
+    key: 'thermalShock',
+    name: '冰火震爆',
+    desc: '冰冻与灼烧同时命中会引发范围震爆',
+    icon: 'icon_thermal_shock',
+    requires: [{ skill: 'frostRounds', minLevel: 1 }, { skill: 'burnBullets', minLevel: 1 }],
+  },
+  {
+    key: 'singularityBomb',
+    name: '坍缩炸弹',
+    desc: '引力场消失时引发一次强力爆炸',
+    icon: 'icon_singularity_bomb',
+    requires: [{ skill: 'gravityWell', minLevel: 1 }, { skill: 'explosiveRound', minLevel: 1 }],
+  },
+  {
+    key: 'cryoMine',
+    name: '极寒雷区',
+    desc: '地雷爆炸会大幅减速范围内的敌人',
+    icon: 'icon_cryo_mine',
+    requires: [{ skill: 'minefield', minLevel: 1 }, { skill: 'frostRounds', minLevel: 1 }],
+  },
+  {
+    key: 'droneSwarm',
+    name: '无人机蜂群',
+    desc: '空中支援发射更多导弹且呼叫更频繁',
+    icon: 'icon_drone_swarm',
+    requires: [{ skill: 'airSupport', minLevel: 1 }, { skill: 'homingMissile', minLevel: 1 }],
+  },
+  {
+    key: 'fieldHospital',
+    name: '战地医院',
+    desc: '自动修复城墙时同步补充能量护盾',
+    icon: 'icon_field_hospital',
+    requires: [{ skill: 'fieldMedic', minLevel: 1 }, { skill: 'energyShield', minLevel: 1 }],
   },
 ];
 

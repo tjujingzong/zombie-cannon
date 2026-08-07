@@ -54,7 +54,7 @@ export class UIScene extends Phaser.Scene {
     });
 
     // Boss 波提示（顶部居中下方）
-    this.bossWaveText = this.add.text(GAME_WIDTH / 2, 90, '⚠ BOSS 波 ⚠', {
+    this.bossWaveText = this.add.text(GAME_WIDTH / 2, 90, '⚠ 首领波 ⚠', {
       fontFamily: FONT, fontSize: '24px', fontStyle: 'bold', color: '#ff1744',
       stroke: '#1a2530', strokeThickness: 4,
     }).setOrigin(0.5).setAlpha(0);
@@ -156,29 +156,35 @@ export class UIScene extends Phaser.Scene {
 
     if (!this.game_?.skills) return;
     const synergies = this.game_.skills.getActiveSynergies();
-    const startX = 30;
-    const y = GAME_HEIGHT - 40;
+    const entries: { label: string; pending: boolean }[] = synergies.length > 8
+      ? [
+          { label: `已激活 ${synergies.length} 项`, pending: false },
+          ...synergies.slice(-7).map((syn) => ({ label: syn.name, pending: false })),
+        ]
+      : synergies.map((syn) => ({ label: syn.name, pending: false }));
 
-    synergies.forEach((syn, i) => {
-      const txt = this.add
-        .text(startX + i * 110, y, `⚡${syn.name}`, {
-          fontFamily: FONT, fontSize: '16px', fontStyle: 'bold', color: '#ffa726',
-          backgroundColor: '#1a2530cc', padding: { x: 6, y: 3 },
-        })
-        .setDepth(15);
-      this.synergyIcons.push(txt);
-    });
-
-    // 显示差一个就能激活的组合技（暗色提示）
     const pending = this.game_.skills.getPendingSynergies();
-    pending.slice(0, 2).forEach((p, i) => {
+    const pendingSlots = Math.max(0, 8 - entries.length);
+    entries.push(...pending.slice(0, pendingSlots).map((item) => ({
+      label: item.synergy.name,
+      pending: true,
+    })));
+
+    entries.forEach((entry, i) => {
+      const col = i % 4;
+      const row = Math.floor(i / 4);
       const txt = this.add
-        .text(startX + (synergies.length + i) * 110, y, `○ ${p.synergy.name}`, {
-          fontFamily: FONT, fontSize: '14px', color: '#5a6a7a',
-          backgroundColor: '#1a253066', padding: { x: 4, y: 2 },
+        .text(18 + col * 174, GAME_HEIGHT - 26 - row * 30, `${entry.pending ? '○' : '⚡'} ${entry.label}`, {
+          fontFamily: FONT, fontSize: '14px', fontStyle: 'bold',
+          color: entry.pending ? '#60717e' : '#ffa726',
+          backgroundColor: entry.pending ? '#101820aa' : '#1a2530dd',
+          align: 'center',
         })
+        .setFixedSize(164, 24)
+        .setOrigin(0, 0.5)
         .setDepth(15);
-      this.pendingIcons.push(txt);
+      if (entry.pending) this.pendingIcons.push(txt);
+      else this.synergyIcons.push(txt);
     });
   }
 
@@ -239,7 +245,7 @@ export class UIScene extends Phaser.Scene {
     const combo = this.game_.hitComboDisplay ?? 0;
     if (combo >= 5) {
       const mult = 1 + Math.min(combo * 0.02, 1.0);
-      this.comboText.setText(`×${combo} 连击 (×${mult.toFixed(1)})`).setAlpha(1);
+      this.comboText.setText(`×${combo} 连击 · ${mult.toFixed(1)}倍伤害`).setAlpha(1);
       if (combo >= 40) this.comboText.setColor('#ff1744');
       else if (combo >= 20) this.comboText.setColor('#ffd54a');
       else this.comboText.setColor('#4fc3f7');

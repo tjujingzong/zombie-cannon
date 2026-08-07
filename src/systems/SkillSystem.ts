@@ -157,12 +157,52 @@ export class SkillSystem {
 
   get airSupportInterval(): number {
     const level = this.getLevel('airSupport');
-    return level > 0 ? Math.max(1.8, 4.5 - level * 0.75) : Infinity;
+    if (level === 0) return Infinity;
+    const interval = Math.max(1.8, 4.5 - level * 0.75);
+    return this.hasSynergy('droneSwarm') ? interval * 0.72 : interval;
   }
 
   get airSupportCount(): number {
     const level = this.getLevel('airSupport');
-    return level >= 3 ? 2 : level > 0 ? 1 : 0;
+    const base = level >= 3 ? 2 : level > 0 ? 1 : 0;
+    return base + (base > 0 && this.hasSynergy('droneSwarm') ? 2 : 0);
+  }
+
+  get gravityWellInterval(): number {
+    const level = this.getLevel('gravityWell');
+    return level > 0 ? Math.max(5.5, 9 - level) : Infinity;
+  }
+
+  get gravityWellRadius(): number {
+    return 145 + this.getLevel('gravityWell') * 20;
+  }
+
+  get gravityWellDamage(): number {
+    return this.damage * (0.24 + this.getLevel('gravityWell') * 0.08);
+  }
+
+  get mineInterval(): number {
+    const level = this.getLevel('minefield');
+    return level > 0 ? Math.max(2.8, 5.8 - level * 0.8) : Infinity;
+  }
+
+  get mineLimit(): number {
+    const level = this.getLevel('minefield');
+    return level > 0 ? 3 + level * 2 : 0;
+  }
+
+  get mineDamage(): number {
+    return this.damage * (1.8 + this.getLevel('minefield') * 0.65);
+  }
+
+  get fieldMedicKillInterval(): number {
+    const level = this.getLevel('fieldMedic');
+    return level > 0 ? 22 - level * 4 : Infinity;
+  }
+
+  get fieldMedicRepairRatio(): number {
+    const level = this.getLevel('fieldMedic');
+    return level > 0 ? 0.025 + level * getSkill('fieldMedic').perLevel : 0;
   }
 
   get isOverdriveActive(): boolean {

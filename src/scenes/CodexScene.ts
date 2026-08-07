@@ -39,7 +39,7 @@ export class CodexScene extends Phaser.Scene {
     bg.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
     // 标题
-    this.add.text(cx, 60, '图鉴 · CODEX', titleStyle(48)).setOrigin(0.5);
+    this.add.text(cx, 60, '战术图鉴', titleStyle(48)).setOrigin(0.5);
 
     // 返回按钮（回到来源场景）
     createButton(this, 60, 60, '返回', () => this.scene.start(this.returnTo), {
@@ -149,7 +149,7 @@ export class CodexScene extends Phaser.Scene {
       const preview = this.add.image(margin + 70, y + 70, stats.texture).setScale(stats.scale * 1.1);
 
       // 名称 + 威胁
-      const nameTxt = this.add.text(margin + 130, y + 16, `${type}  ·  ${codex.role}`, {
+      const nameTxt = this.add.text(margin + 130, y + 16, codex.role, {
         fontFamily: FONT, fontSize: '24px', fontStyle: 'bold', color: '#ffd54a',
       });
       // 威胁星
@@ -165,7 +165,7 @@ export class CodexScene extends Phaser.Scene {
       // 数值
       const statsTxt = this.add.text(
         margin + 130, y + 76,
-        `HP ${stats.hp}  速度 ${stats.speed}  攻墙 ${stats.damage}  金币 ${stats.coin}`,
+        `耐久 ${stats.hp}  速度 ${stats.speed}  攻城 ${stats.damage}  赏金 ${stats.coin}`,
         { fontFamily: FONT, fontSize: '17px', color: '#b0bec5' }
       );
 
@@ -266,7 +266,7 @@ export class CodexScene extends Phaser.Scene {
 
       const reqTexts = syn.requires.map((r) => {
         const sk = SKILLS.find((s) => s.key === r.skill);
-        return `${sk?.name ?? r.skill} Lv.${r.minLevel}`;
+        return `${sk?.name ?? '未知技能'} ${r.minLevel}级`;
       });
       const reqTxt = this.add.text(margin + 16, y + 95, `需要: ${reqTexts.join('  +  ')}`, {
         ...textStyle(14, '#8a9aa8'), fontStyle: 'bold', wordWrap: { width: cardW - 32 }
@@ -299,22 +299,22 @@ export class CodexScene extends Phaser.Scene {
         title: '推荐组合 · 弹幕流',
         color: 0x4fc3f7,
         body:
-          '多重炮管 + 急速装填 → 触发"火力全开"(攻速+50%)。' +
-          '再配弹射弹触发"弹幕风暴"(弹射时多发子弹)，满屏子弹覆盖。',
+          '多重炮管 + 急速装填 → 触发「火力全开」，获得额外攻速。' +
+          '再配弹射弹触发「弹幕风暴」，让弹射产生更多子弹覆盖全场。',
       },
       {
         title: '推荐组合 · 一击必杀流',
         color: 0xffd54a,
         body:
-          '致命瞄准 + 暴击触发"爆燃弹"(暴击范围爆炸)。' +
-          '再叠加灼烧弹+穿甲弹 → "地狱穿甲弹"持续灼烧。Boss 关必备。',
+          '致命瞄准 + 灼烧弹触发「爆燃弹」，让暴击产生范围爆炸。' +
+          '再叠加灼烧弹和穿甲弹触发「地狱穿甲弹」持续灼烧，适合首领关。',
       },
       {
         title: '推荐组合 · 末日审判',
         color: 0xff1744,
         body:
           '激光束 + 追踪导弹 + 爆炸弹 同时激活 → "末日审判"全屏轰炸。' +
-          '需先在前期攒出三个前置技能，第 5/10 关 Boss 波最佳启动点。',
+          '需先在前期集齐三个前置技能，在首领波和终局尸潮中收益最高。',
       },
       {
         title: '推荐组合 · 铜墙铁壁',
@@ -324,11 +324,11 @@ export class CodexScene extends Phaser.Scene {
           '配合能量护盾 → "铁壁堡垒"护盾恢复翻倍，容错率极高。',
       },
       {
-        title: '应对 Boss',
+        title: '应对首领',
         color: 0xff6d00,
         body:
-          'Boss 每 5 关出现一次（5/10/15/.../50）。Boss 会周期召唤小怪，' +
-          '必须留一个范围清场技能（爆炸弹/激光）。Boss 触墙伤害巨大，' +
+          '首领每 5 关出现一次，从第 5 关持续到第 50 关。首领会周期召唤小怪，' +
+          '必须保留爆炸弹或激光等范围清场技能。首领触墙伤害巨大，' +
           '务必在其到达前清掉小怪，集中火力击杀。',
       },
       {
@@ -345,8 +345,8 @@ export class CodexScene extends Phaser.Scene {
         title: '关卡引擎说明',
         color: 0xab47bc,
         body:
-          `共 ${LEVEL_ENGINE_INFO.totalLevels} 关，每 ${LEVEL_ENGINE_INFO.bossInterval} 关一个 Boss 关（第 5/10/15/20/25/30/35/40/45/50 关）。` +
-          `每 ${LEVEL_ENGINE_INFO.chapterSize} 关一个大章节，biome 循环、难度跃升。` +
+          `共 ${LEVEL_ENGINE_INFO.totalLevels} 关，每 ${LEVEL_ENGINE_INFO.bossInterval} 关一个首领关。` +
+          `每 ${LEVEL_ENGINE_INFO.chapterSize} 关进入新章节，场景主题循环且难度跃升。` +
           `第 11 关起为程序化生成的关卡，难度持续上升，越往后越硬核。`,
       },
       {
@@ -355,9 +355,23 @@ export class CodexScene extends Phaser.Scene {
         body:
           '每次进入关卡，开局即可免费挑选 5 项技能作为战前储备。' +
           '建议优先选择「多重炮管 + 急速装填 + 致命瞄准」等核心输出技能，' +
-          '或凑齐组合技前置（如灼烧弹+穿甲弹 → 地狱穿甲弹）。' +
+          '或凑齐组合技前置，例如灼烧弹与穿甲弹可触发地狱穿甲弹。' +
           '为平衡难度，选满 5 项后本关怪物数量会增加约 60%，' +
           '因此请合理搭配，避免只选单一类型技能被克制。',
+      },
+      {
+        title: '推荐组合 · 冰火控场',
+        color: 0x26c6da,
+        body:
+          '冰冻弹头 + 灼烧弹 → 触发「冰火震爆」，连续制造范围伤害。' +
+          '再加入防线雷区触发「极寒雷区」，可以在尸潮贴墙前反复控制。',
+      },
+      {
+        title: '推荐组合 · 奇点爆破',
+        color: 0xb388ff,
+        body:
+          '引力奇点会自动锁定最密集的尸群并聚怪。' +
+          '搭配爆炸弹触发「坍缩炸弹」，引力场结束时完成集中清屏。',
       },
     ];
 

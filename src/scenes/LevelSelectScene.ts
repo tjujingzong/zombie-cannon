@@ -388,7 +388,7 @@ export class LevelSelectScene extends Phaser.Scene {
     const refresh = () => {
       const level = SaveManager.getMetaLevel(key);
       const maxed = level >= cfg.max;
-      nameText.setText(`${cfg.name}  Lv.${level}${maxed ? ' (满级)' : ''}`);
+      nameText.setText(`${cfg.name}  Lv.${level}${maxed ? ' · 已满级' : ''}`);
       descText.setText(cfg.desc);
       btn?.destroy();
       if (maxed) {

@@ -15,6 +15,8 @@ import {
   GHOST_VISIBLE_TIME,
   SUMMONER_INTERVAL,
   LEAPER_INTERVAL,
+  BURROW_DURATION,
+  SIPHON_HEAL_RATIO,
   RANGED_ZOMBIE_TYPES,
 } from '../data/balance';
 
@@ -41,6 +43,9 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
   private slowTimer = 0;
   private leapTimer = 0;
   private leapBurstTimer = 0;
+  private burrowTimer = 0;
+  private isBurrowed = false;
+  private damageReduction = 0;
 
   private hpBar!: Phaser.GameObjects.Graphics;
   private shieldBar!: Phaser.GameObjects.Graphics;
@@ -59,6 +64,8 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
   onHeal?: (zombie: Zombie) => void;
   /** 死亡爆炸回调 */
   onExplode?: (x: number, y: number) => void;
+  /** 掘地者破土回调 */
+  onSurface?: (zombie: Zombie) => void;
 
   /** 死亡动画播放中 */
   dying = false;
@@ -86,16 +93,19 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     this.slowTimer = 0;
     this.leapTimer = 0;
     this.leapBurstTimer = 0;
+    this.burrowTimer = type === 'burrower' ? BURROW_DURATION : 0;
+    this.isBurrowed = type === 'burrower';
+    this.damageReduction = 0;
 
     this.enableBody(true, x, y, true, true);
     this.setTexture(stats.texture);
-    this.setScale(stats.scale);
+    this.setScale(stats.scale, this.isBurrowed ? stats.scale * 0.42 : stats.scale);
     this.setRotation(0);
     this.clearTint();
-    this.setAlpha(1);
+    this.setAlpha(this.isBurrowed ? 0.42 : 1);
     const body = this.body as Phaser.Physics.Arcade.Body;
     body.setSize(this.width * 0.7, this.height * 0.8);
-    this.setVelocity(0, this.baseSpeed);
+    this.setVelocity(0, this.baseSpeed * (this.isBurrowed ? 2.15 : 1));
     this.setDepth(5);
 
     if (!this.hpBar) this.hpBar = this.scene.add.graphics();
@@ -125,6 +135,7 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
   }
 
   private drawHpBar(): void {
+    if (this.isBurrowed) { this.hpBar.clear(); return; }
     const w = 56 * this.scaleX;
     const ratio = Phaser.Math.Clamp(this.hp / this.maxHp, 0, 1);
     this.hpBar.clear();
@@ -149,7 +160,8 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
 
   /** 返回 true 表示死亡 */
   takeDamage(dmg: number): boolean {
-    if (this.hp <= 0 || !this.isGhostVisible || this.dying) return false;
+    if (this.hp <= 0 || !this.isGhostVisible || this.isBurrowed || this.dying) return false;
+    dmg *= 1 - this.damageReduction;
 
     // 护盾优先吸收
     if (this.shield > 0) {
@@ -183,6 +195,28 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     this.setTint(0x9be7ff);
   }
 
+  setDamageReduction(value: number): void {
+    this.damageReduction = Phaser.Math.Clamp(value, 0, 0.75);
+  }
+
+  get burrowed(): boolean {
+    return this.isBurrowed;
+  }
+
+  forceSurface(): void {
+    if (this.active && this.isBurrowed) this.surfaceFromBurrow();
+  }
+
+  private surfaceFromBurrow(): void {
+    this.isBurrowed = false;
+    this.burrowTimer = 0;
+    const stats = ZOMBIE_TYPES[this.zType];
+    this.setScale(stats.scale).setAlpha(1);
+    this.setVelocity(0, this.baseSpeed * this.slowMultiplier);
+    this.drawHpBar();
+    this.onSurface?.(this);
+  }
+
   private flashHit(): void {
     this.setTintFill(0xffffff);
     this.scene.time.delayedCall(60, () => {
@@ -197,6 +231,8 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     this.hp = 0;
     this.shield = 0;
     this.dying = false;
+    this.isBurrowed = false;
+    this.damageReduction = 0;
     if (this.hpBar) this.hpBar.clear().setVisible(false);
     if (this.shieldBar) this.shieldBar.clear().setVisible(false);
     this.bossAura?.setVisible(false);
@@ -246,6 +282,13 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     const dt = delta / 1000;
     const body = this.body as Phaser.Physics.Arcade.Body;
     const bottom = this.y + this.displayHeight / 2;
+
+    if (this.isBurrowed && this.hp > 0) {
+      this.burrowTimer -= dt;
+      this.setVelocity(0, this.baseSpeed * 2.15 * this.slowMultiplier);
+      this.setRotation(Math.sin(time * 0.014) * 0.05);
+      if (this.burrowTimer <= 0 || WALL_Y - bottom < 270) this.surfaceFromBurrow();
+    }
 
     if (this.slowTimer > 0) {
       this.slowTimer -= dt;
@@ -316,7 +359,7 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     }
 
     // ── 触墙攻击（非远程类型） ──
-    if (!RANGED_ZOMBIE_TYPES.has(this.zType) && bottom >= WALL_Y) {
+    if (!this.isBurrowed && !RANGED_ZOMBIE_TYPES.has(this.zType) && bottom >= WALL_Y) {
       if (body.velocity.y !== 0) {
         this.setVelocity(0, 0);
         this.setRotation(0);
@@ -326,6 +369,11 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
       if (this.attackTimer >= ZOMBIE_ATTACK_INTERVAL) {
         this.attackTimer = 0;
         this.onAttackWall(this.wallDamage);
+        if (this.zType === 'siphon') {
+          this.hp = Math.min(this.maxHp, this.hp + this.maxHp * SIPHON_HEAL_RATIO);
+          this.drawHpBar();
+          this.onHeal?.(this);
+        }
         this.scene.tweens.add({ targets: this, y: this.y + 10, duration: 90, yoyo: true });
       }
     }

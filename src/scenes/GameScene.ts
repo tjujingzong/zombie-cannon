@@ -4,6 +4,7 @@ import {
   levelClearReward, starsForWallRatio, EXPLOSION_DAMAGE,
   KILL_STREAK_THRESHOLDS,
   PRE_GAME_FREE_SKILLS, PRE_GAME_MONSTER_MULTIPLIER,
+  CONDUCTOR_AURA_RANGE, CONDUCTOR_DAMAGE_REDUCTION,
 } from '../data/balance';
 import { LEVELS, LevelConfig, getLevel } from '../data/levels';
 import { AudioSystem } from '../systems/AudioSystem';
@@ -48,6 +49,7 @@ export class GameScene extends Phaser.Scene {
   private laserGraphics!: Phaser.GameObjects.Graphics;
   private lightningGraphics!: Phaser.GameObjects.Graphics;
   private supportGraphics!: Phaser.GameObjects.Graphics;
+  private conductorGraphics!: Phaser.GameObjects.Graphics;
   private bloodEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
   private explosionEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
   /** 氛围粒子（飘落的灰尘/灰烬） */
@@ -57,6 +59,8 @@ export class GameScene extends Phaser.Scene {
   private missileTimer = 0;
   private airSupportTimer = 0;
   private armorySupportTimer = 0;
+  private gravityWellTimer = 0;
+  private mineTimer = 0;
   /** 护盾计时器 */
   private shieldTimer = 0;
   /** 连杀计时器（连杀中断） */
@@ -81,6 +85,9 @@ export class GameScene extends Phaser.Scene {
   private hordeBannerShown = false;
   private synergyQueue: SynergyDef[] = [];
   private synergyNoticeActive = false;
+  private gravityWells: { sprite: Phaser.GameObjects.Image; x: number; y: number; timer: number; tick: number }[] = [];
+  private deployedMines: Phaser.GameObjects.Image[] = [];
+  private thermalShockReadyAt = new WeakMap<Zombie, number>();
 
   // 供 UIScene 读取的公开状态
   runCoins = 0;
@@ -118,6 +125,8 @@ export class GameScene extends Phaser.Scene {
     this.missileTimer = 0;
     this.airSupportTimer = 0;
     this.armorySupportTimer = 0;
+    this.gravityWellTimer = 0;
+    this.mineTimer = 0;
     this.shieldTimer = 0;
     this.streakTimer = 0;
     this.wallInvulnTimer = 0;
@@ -138,6 +147,9 @@ export class GameScene extends Phaser.Scene {
     this.hordeBannerShown = false;
     this.synergyQueue = [];
     this.synergyNoticeActive = false;
+    this.gravityWells = [];
+    this.deployedMines = [];
+    this.thermalShockReadyAt = new WeakMap<Zombie, number>();
   }
 
   create(): void {
@@ -191,6 +203,7 @@ export class GameScene extends Phaser.Scene {
     this.laserGraphics = this.add.graphics().setDepth(12);
     this.lightningGraphics = this.add.graphics().setDepth(14);
     this.supportGraphics = this.add.graphics().setDepth(14);
+    this.conductorGraphics = this.add.graphics().setDepth(4);
     this.bloodEmitter = this.add.particles(0, 0, 'blood', {
       speed: { min: 80, max: 280 }, lifespan: 450,
       scale: { start: 1.1, end: 0 }, quantity: 16, emitting: false,
@@ -289,6 +302,7 @@ export class GameScene extends Phaser.Scene {
       }
       bg.fillStyle(0x000000, 0.18);
     }
+    this.drawBiomeLandmarks(bg, pal.road);
     // 路边残骸/路灯剪影，给不同 biome 的色板提供可读的场景结构
     bg.fillStyle(0x000000, 0.32);
     bg.fillRect(54, WALL_Y - 210, 8, 210);
@@ -314,6 +328,77 @@ export class GameScene extends Phaser.Scene {
     // 顶部冷色雾幕：保持场景明暗分层，同时让僵尸从远处压进来的感觉更强
     bg.fillStyle(pal.road, 0.035).fillRect(0, 82, GAME_WIDTH, 110);
     bg.fillStyle(0x000000, 0.12).fillRect(0, WALL_Y - 120, GAME_WIDTH, 120);
+  }
+
+  private drawBiomeLandmarks(bg: Phaser.GameObjects.Graphics, accent: number): void {
+    bg.lineStyle(3, accent, 0.13);
+    bg.lineBetween(80, WALL_Y, 275, 90);
+    bg.lineBetween(GAME_WIDTH - 80, WALL_Y, GAME_WIDTH - 275, 90);
+    bg.lineStyle(2, 0x000000, 0.26);
+    for (let y = 260; y < WALL_Y - 80; y += 170) {
+      const x = Phaser.Math.Between(160, GAME_WIDTH - 160);
+      bg.lineBetween(x - 35, y, x + 8, y + 24);
+      bg.lineBetween(x + 8, y + 24, x - 18, y + 54);
+    }
+
+    bg.fillStyle(0x05090c, 0.62);
+    switch (this.level.biome) {
+      case 'gas':
+        bg.fillRect(36, 150, 220, 18).fillRect(58, 168, 14, 128).fillRect(218, 168, 14, 128);
+        bg.fillStyle(accent, 0.28).fillRoundedRect(96, 214, 42, 70, 5).fillRoundedRect(158, 214, 42, 70, 5);
+        break;
+      case 'town':
+        bg.fillTriangle(34, 260, 126, 178, 220, 260).fillRect(52, 260, 150, 112);
+        bg.fillTriangle(492, 238, 570, 166, 666, 238).fillRect(510, 238, 136, 128);
+        break;
+      case 'tunnel':
+        bg.lineStyle(30, 0x030609, 0.72).strokeEllipse(GAME_WIDTH / 2, 330, 620, 520);
+        bg.lineStyle(5, accent, 0.13).strokeEllipse(GAME_WIDTH / 2, 330, 540, 450);
+        bg.fillStyle(accent, 0.35).fillRect(74, 218, 42, 10).fillRect(GAME_WIDTH - 116, 218, 42, 10);
+        break;
+      case 'bridge':
+        bg.fillRect(34, 170, 18, 550).fillRect(GAME_WIDTH - 52, 170, 18, 550);
+        bg.lineStyle(5, 0x05090c, 0.65).lineBetween(43, 190, 215, 640).lineBetween(GAME_WIDTH - 43, 190, GAME_WIDTH - 215, 640);
+        bg.lineStyle(3, accent, 0.18).lineBetween(54, 360, 220, 360).lineBetween(GAME_WIDTH - 54, 360, GAME_WIDTH - 220, 360);
+        break;
+      case 'graveyard':
+        for (let i = 0; i < 9; i++) {
+          const x = 42 + i * 78;
+          const y = 220 + (i % 3) * 78;
+          bg.fillRoundedRect(x, y, 34, 54, 8).fillRect(x - 8, y + 48, 50, 9);
+        }
+        break;
+      case 'factory':
+        bg.fillRect(40, 150, 86, 240).fillRect(150, 205, 150, 180).fillRect(570, 125, 64, 270);
+        bg.fillStyle(accent, 0.26).fillRect(64, 180, 28, 160).fillRect(594, 155, 18, 190);
+        bg.lineStyle(12, 0x05090c, 0.62).lineBetween(126, 245, 570, 245);
+        break;
+      case 'hospital':
+        bg.fillRect(74, 142, 244, 246).fillRect(412, 188, 224, 198);
+        bg.fillStyle(accent, 0.32).fillRect(178, 174, 34, 100).fillRect(145, 207, 100, 34);
+        for (let x = 438; x < 610; x += 48) bg.fillRect(x, 224, 24, 36);
+        break;
+      case 'city':
+        for (let i = 0; i < 7; i++) {
+          const x = i * 112 - 18;
+          const h = 150 + (i % 3) * 65;
+          bg.fillRect(x, 410 - h, 90, h);
+          bg.fillStyle(accent, 0.24).fillRect(x + 18, 440 - h, 12, 22).fillRect(x + 52, 470 - h, 12, 22);
+          bg.fillStyle(0x05090c, 0.62);
+        }
+        break;
+      case 'throne':
+        for (let i = 0; i < 11; i++) {
+          const x = i * 72 - 18;
+          bg.fillTriangle(x, 382, x + 34, 180 + (i % 2) * 70, x + 68, 382);
+        }
+        bg.fillStyle(accent, 0.2).fillTriangle(278, 380, 360, 116, 442, 380);
+        break;
+      default:
+        bg.fillRect(42, 184, 14, 176).fillRect(GAME_WIDTH - 56, 184, 14, 176);
+        bg.fillStyle(accent, 0.24).fillTriangle(72, 280, 122, 190, 172, 280).fillTriangle(548, 280, 598, 190, 648, 280);
+        break;
+    }
   }
 
   private createSupportEmplacement(): void {
@@ -377,6 +462,141 @@ export class GameScene extends Phaser.Scene {
     AudioSystem.play('explosion', { volume: 0.45 });
   }
 
+  private updateConductorAuras(alive: Zombie[]): void {
+    this.conductorGraphics.clear();
+    for (const zombie of alive) zombie.setDamageReduction(0);
+    const conductors = alive.filter((zombie) => zombie.zType === 'conductor' && !zombie.dying);
+    const pulse = 0.55 + Math.sin(this.time.now * 0.006) * 0.15;
+    for (const conductor of conductors) {
+      this.conductorGraphics.lineStyle(3, 0x4dd0e1, pulse).strokeCircle(
+        conductor.x, conductor.y, CONDUCTOR_AURA_RANGE,
+      );
+      this.conductorGraphics.lineStyle(10, 0x26c6da, 0.06).strokeCircle(
+        conductor.x, conductor.y, CONDUCTOR_AURA_RANGE - 6,
+      );
+      for (const zombie of alive) {
+        if (zombie === conductor || zombie.dying) continue;
+        if (Phaser.Math.Distance.Between(conductor.x, conductor.y, zombie.x, zombie.y) <= CONDUCTOR_AURA_RANGE) {
+          zombie.setDamageReduction(CONDUCTOR_DAMAGE_REDUCTION);
+        }
+      }
+    }
+  }
+
+  private updateGravityWells(dt: number, alive: Zombie[]): void {
+    if (this.skills.gravityWellInterval < Infinity && alive.length > 0) {
+      this.gravityWellTimer += dt;
+      if (this.gravityWellTimer >= this.skills.gravityWellInterval) {
+        this.gravityWellTimer = 0;
+        const candidates = alive.filter((zombie) => !zombie.burrowed && !zombie.dying);
+        if (candidates.length > 0) {
+          let target = candidates[0];
+          let bestScore = -1;
+          const step = Math.max(1, Math.floor(candidates.length / 18));
+          for (let i = 0; i < candidates.length; i += step) {
+            const candidate = candidates[i];
+            let score = 0;
+            for (const zombie of candidates) {
+              if (Phaser.Math.Distance.Between(candidate.x, candidate.y, zombie.x, zombie.y) < 170) score++;
+            }
+            if (score > bestScore) { bestScore = score; target = candidate; }
+          }
+          const sprite = this.add.image(target.x, target.y, 'gravity_field')
+            .setDepth(3).setScale(0.6).setAlpha(0.88);
+          this.gravityWells.push({ sprite, x: target.x, y: target.y, timer: 3.8, tick: 0 });
+          this.cameras.main.flash(100, 126, 87, 194, false);
+          AudioSystem.play('synergy', { volume: 0.4 });
+        }
+      }
+    }
+
+    for (let i = this.gravityWells.length - 1; i >= 0; i--) {
+      const well = this.gravityWells[i];
+      well.timer -= dt;
+      well.tick -= dt;
+      well.sprite.rotation += dt * 2.4;
+      well.sprite.setScale(0.72 + Math.sin(this.time.now * 0.01 + i) * 0.08);
+      const damageTick = well.tick <= 0;
+      if (damageTick) well.tick = 0.42;
+      for (const zombie of alive) {
+        if (!zombie.active || zombie.hp <= 0 || zombie.dying || zombie.burrowed) continue;
+        const dist = Phaser.Math.Distance.Between(well.x, well.y, zombie.x, zombie.y);
+        if (dist >= this.skills.gravityWellRadius || dist < 4) continue;
+        const pull = 125 * dt * (1 - dist / this.skills.gravityWellRadius);
+        zombie.x += ((well.x - zombie.x) / dist) * pull;
+        zombie.y += ((well.y - zombie.y) / dist) * pull * 0.6;
+        if (damageTick) {
+          const died = zombie.takeDamage(this.skills.gravityWellDamage);
+          if (died) this.killZombie(zombie);
+        }
+      }
+      if (well.timer <= 0) {
+        if (this.skills.hasSynergy('singularityBomb')) this.doExplosion(well.x, well.y);
+        well.sprite.destroy();
+        this.gravityWells.splice(i, 1);
+      }
+    }
+  }
+
+  private updateMinefield(dt: number, alive: Zombie[]): void {
+    if (this.skills.mineInterval === Infinity) return;
+    this.mineTimer += dt;
+    if (this.mineTimer >= this.skills.mineInterval && this.deployedMines.length < this.skills.mineLimit) {
+      this.mineTimer = 0;
+      const mine = this.add.image(
+        Phaser.Math.Between(72, GAME_WIDTH - 72),
+        Phaser.Math.Between(WALL_Y - 260, WALL_Y - 95),
+        'field_mine',
+      ).setDepth(2).setScale(0.72).setAlpha(0.9);
+      this.deployedMines.push(mine);
+      this.tweens.add({ targets: mine, alpha: 0.55, duration: 420, yoyo: true, repeat: 2 });
+    }
+
+    for (let i = this.deployedMines.length - 1; i >= 0; i--) {
+      const mine = this.deployedMines[i];
+      const target = alive.find((zombie) => zombie.active && zombie.hp > 0
+        && Phaser.Math.Distance.Between(mine.x, mine.y, zombie.x, zombie.y) <= 58);
+      if (!target) continue;
+      this.deployedMines.splice(i, 1);
+      mine.destroy();
+      this.detonateMine(target.x, target.y, alive);
+    }
+  }
+
+  private detonateMine(x: number, y: number, alive: Zombie[]): void {
+    const radius = 128;
+    this.explosionEmitter.setPosition(x, y)
+      .setParticleTint(this.skills.hasSynergy('cryoMine') ? 0x80deea : 0xffca28).explode(22);
+    for (const zombie of alive) {
+      if (!zombie.active || zombie.hp <= 0 || zombie.dying) continue;
+      const dist = Phaser.Math.Distance.Between(x, y, zombie.x, zombie.y);
+      if (dist > radius) continue;
+      if (zombie.burrowed) zombie.forceSurface();
+      const died = zombie.takeDamage(this.skills.mineDamage * Math.max(0.35, 1 - dist / 180));
+      if (!died && this.skills.hasSynergy('cryoMine')) zombie.applySlow(0.48, 3.2);
+      if (died) this.killZombie(zombie);
+    }
+    this.cameras.main.shake(130, 0.007);
+    AudioSystem.play('explosion', { volume: 0.6 });
+  }
+
+  private applyFieldMedicIfReady(): void {
+    const interval = this.skills.fieldMedicKillInterval;
+    if (interval === Infinity || this.skills.totalKills === 0 || this.skills.totalKills % interval !== 0) return;
+    const repaired = Math.max(1, Math.round(this.wallMaxHp * this.skills.fieldMedicRepairRatio));
+    this.wallHp = Math.min(this.wallMaxHp, this.wallHp + repaired);
+    if (this.skills.hasSynergy('fieldHospital')) {
+      this.wallShield = Math.min(this.wallMaxHp * 0.75, this.wallShield + repaired * 0.7);
+      this.showShieldActivateEffect();
+    }
+    const label = this.add.text(GAME_WIDTH / 2, WALL_Y - 34, `战地修复 +${repaired}`, {
+      fontFamily: FONT, fontSize: '24px', fontStyle: 'bold', color: '#69f0ae',
+      stroke: '#102218', strokeThickness: 4,
+    }).setOrigin(0.5).setDepth(20);
+    this.tweens.add({ targets: label, y: label.y - 42, alpha: 0, duration: 850, onComplete: () => label.destroy() });
+    AudioSystem.play('heal', { volume: 0.55 });
+  }
+
   // ─── 波次 ───
 
   private beginWave(): void {
@@ -406,7 +626,7 @@ export class GameScene extends Phaser.Scene {
 
     const bannerColor = isBossWave ? '#ff1744' : '#ffd54a';
     const bannerText = isBossWave
-      ? `⚠ BOSS 波 ${this.waveManager.currentWave}/${this.waveManager.totalWaves}`
+      ? `⚠ 首领波 ${this.waveManager.currentWave}/${this.waveManager.totalWaves}`
       : this.isHordeActive
         ? `尸潮来袭 · ${this.waveManager.currentWave}/${this.waveManager.totalWaves}`
         : `第 ${this.waveManager.currentWave} 波`;
@@ -489,6 +709,11 @@ export class GameScene extends Phaser.Scene {
       AudioSystem.play('heal', { volume: 0.4 });
     };
     z.onExplode = (ex, ey) => this.doExplosion(ex, ey);
+    z.onSurface = (burrower) => {
+      this.explosionEmitter.setPosition(burrower.x, burrower.y).setParticleTint(0x8d6e63).explode(12);
+      this.showShockwave(burrower.x, burrower.y);
+      AudioSystem.play('wall_hit', { volume: 0.35 });
+    };
 
     // Boss 出生特效
     if (type === 'boss') {
@@ -497,6 +722,9 @@ export class GameScene extends Phaser.Scene {
     // 自爆者出场带闪烁
     if (type === 'exploder') {
       this.tweens.add({ targets: z, alpha: 0.7, duration: 120, yoyo: true, repeat: 2 });
+    }
+    if (type === 'conductor') {
+      this.cameras.main.flash(90, 77, 208, 225, false);
     }
   }
 
@@ -562,6 +790,9 @@ export class GameScene extends Phaser.Scene {
     // 灼烧效果
     if (this.skills.burnDps > 0 && zombie.hp > 0) {
       this.applyBurn(zombie, this.skills.burnDps);
+    }
+    if (!died && zombie.hp > 0 && this.skills.hasSynergy('thermalShock')) {
+      this.triggerThermalShock(zombie);
     }
 
     // 穿甲组合技：地狱穿甲弹
@@ -647,6 +878,27 @@ export class GameScene extends Phaser.Scene {
     }
     this.time.delayedCall(90, () => this.lightningGraphics.clear());
     if (targets.length > 0) AudioSystem.play('lightning', { volume: 0.7 });
+  }
+
+  private triggerThermalShock(source: Zombie): void {
+    const now = this.time.now;
+    if ((this.thermalShockReadyAt.get(source) ?? 0) > now) return;
+    this.thermalShockReadyAt.set(source, now + 1100);
+    const radius = 105;
+    const damage = this.skills.damage * 0.78;
+    this.explosionEmitter.setPosition(source.x, source.y).setParticleTint(0x80deea).explode(16);
+    const ring = this.add.image(source.x, source.y, 'shockwave').setDepth(13).setScale(0.35).setTint(0xff8a65);
+    this.tweens.add({
+      targets: ring, scale: 2.2, alpha: 0, duration: 320,
+      onComplete: () => ring.destroy(),
+    });
+    for (const zombie of this.aliveZombies()) {
+      if (Phaser.Math.Distance.Between(source.x, source.y, zombie.x, zombie.y) > radius) continue;
+      const died = zombie.takeDamage(damage);
+      zombie.applySlow(Math.min(this.skills.frostSlowMultiplier, 0.7), 1.2);
+      if (died) this.killZombie(zombie);
+    }
+    AudioSystem.play('explosion', { volume: 0.42 });
   }
 
   // ─── 酸球（远程僵尸攻击） ───
@@ -998,6 +1250,7 @@ export class GameScene extends Phaser.Scene {
 
     // 连杀
     this.skills.onKill();
+    this.applyFieldMedicIfReady();
     this.streakTimer = 0;
     this.addOverdriveCharge(zombie);
 
@@ -1135,7 +1388,8 @@ export class GameScene extends Phaser.Scene {
       fontFamily: FONT, fontSize: '32px', fontStyle: 'bold', color: '#1a2530',
     }).setDepth(26);
     const desc = this.add.text(GAME_WIDTH / 2 - 140, 218, syn.desc, {
-      fontFamily: FONT, fontSize: '20px', color: '#4a2500',
+      fontFamily: FONT, fontSize: '18px', color: '#4a2500',
+      wordWrap: { width: 305, useAdvancedWrap: true },
     }).setDepth(26);
     const label = this.add.text(GAME_WIDTH / 2 + 200, 185, '组合技!', {
       fontFamily: FONT, fontSize: '26px', fontStyle: 'bold', color: '#ffffff',
@@ -1183,6 +1437,7 @@ export class GameScene extends Phaser.Scene {
     const alive = this.aliveZombies();
     this.enemyCount = alive.length;
     this.hordeProgress = this.waveManager.hordeProgress;
+    this.updateConductorAuras(alive);
     const jammerCount = alive.reduce((count, zombie) => count + (zombie.zType === 'jammer' ? 1 : 0), 0);
     this.skills.setEnemyFireRateMultiplier(1 - jammerCount * 0.08);
     this.cannon.update(dt, alive);
@@ -1216,6 +1471,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.updateArmorySupport(effectiveDt, alive);
+    this.updateGravityWells(effectiveDt, alive);
+    this.updateMinefield(effectiveDt, alive);
 
     if (this.skills.airSupportInterval < Infinity) {
       this.airSupportTimer += effectiveDt;
@@ -1381,7 +1638,7 @@ export class GameScene extends Phaser.Scene {
         })
         .setOrigin(0.5).setDepth(31);
       hint = this.add
-        .text(GAME_WIDTH / 2, 236, `还可选择 ${this.preGamePicksLeft} 项  （选满后怪物数量 +${Math.round((PRE_GAME_MONSTER_MULTIPLIER - 1) * 100)}% 平衡难度）`, {
+        .text(GAME_WIDTH / 2, 236, `还可选择 ${this.preGamePicksLeft} 项 · 选满后敌军规模提升 ${Math.round((PRE_GAME_MONSTER_MULTIPLIER - 1) * 100)}%`, {
           fontFamily: FONT, fontSize: '20px', fontStyle: 'bold', color: '#ffa726',
           stroke: '#1a2530', strokeThickness: 3,
           wordWrap: { width: GAME_WIDTH - 60 }, align: 'center',
@@ -1497,7 +1754,7 @@ export class GameScene extends Phaser.Scene {
       const rbColor = canAfford ? 0x5d4037 : 0x3a3a3a;
       rbBg.fillStyle(0x000000, 0.3).fillRoundedRect(-rbW / 2 + 2, -rbH / 2 + 3, rbW, rbH, 12);
       rbBg.fillStyle(rbColor, 1).fillRoundedRect(-rbW / 2, -rbH / 2, rbW, rbH, 12);
-      const rbTxt = this.add.text(0, -2, `🔄 重铸 (${rerollCost}金)`, {
+      const rbTxt = this.add.text(0, -2, `🔄 重铸 · ${rerollCost} 金`, {
         fontFamily: FONT, fontSize: '22px', fontStyle: 'bold',
         color: canAfford ? '#ffd54a' : '#666666',
       }).setOrigin(0.5);
@@ -1562,8 +1819,9 @@ export class GameScene extends Phaser.Scene {
       .text(0, 55, currentLevel === 0 ? '新技能!' : `Lv.${currentLevel} → Lv.${currentLevel + 1}`,
         textStyle(18, '#8fbf8f'))
       .setOrigin(0.5);
+    const wrappedDesc = skill.desc.match(/.{1,8}/g)?.join('\n') ?? skill.desc;
     const desc = this.add
-      .text(0, 105, skill.desc, { ...textStyle(18, '#aab8c2'), wordWrap: { width: w - 24 }, align: 'center' })
+      .text(0, 105, wrappedDesc, { ...textStyle(18, '#aab8c2'), align: 'center', lineSpacing: 3 })
       .setOrigin(0.5);
 
     const children: Phaser.GameObjects.GameObject[] = [g, rarityText, icon, name, lv, desc];
