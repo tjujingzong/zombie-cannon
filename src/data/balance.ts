@@ -37,6 +37,9 @@ export const ZOMBIE_TYPES: Record<string, ZombieStats> = {
   ghost:       { hp: 20,  speed: 75,  damage: 6,  coin: 14,  scale: 0.9,  texture: 'zombie_ghost',      tint: 0xffffff },  // 周期隐身
   berserker:   { hp: 50,  speed: 40,  damage: 10, coin: 16,  scale: 1.1,  texture: 'zombie_berserker',  tint: 0xffffff },  // 血量越低越快
   summoner:    { hp: 70,  speed: 35,  damage: 6,  coin: 25,  scale: 1.15, texture: 'zombie_summoner',   tint: 0xffffff },  // 召唤小怪
+  leaper:      { hp: 32,  speed: 62,  damage: 9,  coin: 15,  scale: 0.95, texture: 'zombie_leaper',     tint: 0xffffff },  // 周期冲刺
+  splitter:    { hp: 42,  speed: 48,  damage: 6,  coin: 14,  scale: 1.05, texture: 'zombie_splitter',   tint: 0xffffff },  // 死亡分裂
+  jammer:      { hp: 58,  speed: 42,  damage: 5,  coin: 22,  scale: 1.1,  texture: 'zombie_jammer',     tint: 0xffffff },  // 压制炮台攻速
 };
 
 export type ZombieTypeKey = keyof typeof ZOMBIE_TYPES;
@@ -118,6 +121,21 @@ export const ZOMBIE_CODEX: Record<ZombieTypeKey, ZombieCodex> = {
     weaknesses: ['优先击杀', '范围清场'], counter: '与治愈者同列为"必须先杀"，用爆炸弹连锁清理召唤物并削本体。',
     firstSeen: 8, threat: 5,
   },
+  leaper: {
+    role: '跃袭者', behavior: '周期性高速跃进，短时间跨越大段路程。',
+    weaknesses: ['减速', '爆发伤害'], counter: '冰冻弹头可打断冲刺节奏，优先在远处击杀。',
+    firstSeen: 7, threat: 3,
+  },
+  splitter: {
+    role: '分裂母体', behavior: '死亡时分裂为两只尸潮腐尸，持续占用防线火力。',
+    weaknesses: ['范围伤害', '连锁攻击'], counter: '使用爆炸与连锁技能一次清理分裂产物。',
+    firstSeen: 6, threat: 4,
+  },
+  jammer: {
+    role: '电磁干扰者', behavior: '存活时降低炮台射速，多只效果叠加但存在下限。',
+    weaknesses: ['处决', '追踪攻击'], counter: '尽快用处决协议或空中支援点杀。',
+    firstSeen: 8, threat: 5,
+  },
 };
 
 // 远程攻击僵尸类型
@@ -138,6 +156,7 @@ export const SHIELD_MAX = 40; // 护盾僵尸初始护盾量
 export const GHOST_PHASE_INTERVAL = 4.0; // 幽灵隐身周期（秒）
 export const GHOST_VISIBLE_TIME = 2.5; // 幽灵可见时间
 export const SUMMONER_INTERVAL = 5.0; // 召唤者召唤间隔
+export const LEAPER_INTERVAL = 3.2; // 跃袭者冲刺间隔
 export const EXPLOSION_RADIUS = 100; // 爆炸范围
 export const EXPLOSION_DAMAGE = 15; // 爆炸对周围僵尸伤害
 

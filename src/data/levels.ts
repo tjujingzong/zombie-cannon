@@ -94,7 +94,7 @@ const HANDCRAFTED_LEVELS: LevelConfig[] = [
     waves: [
       { groups: [g('normal', 16, 0.7), g('ghost', 5, 1.5, 2), g('fast', 6, 1.0, 3)] },
       { groups: [g('tank', 4, 2.2), g('normal', 12, 0.8, 2), g('spitter', 4, 1.8, 4), g('healer', 2, 4.0, 6)] },
-      { groups: [g('fast', 14, 0.6), g('ghost', 6, 1.2, 2), g('shield', 3, 2.5, 5)] },
+      { groups: [g('fast', 14, 0.6), g('ghost', 6, 1.2, 2), g('splitter', 4, 1.4, 4), g('shield', 3, 2.5, 5)] },
       { groups: [g('normal', 20, 0.55), g('tank', 5, 2.0, 3), g('exploder', 5, 1.5, 5), g('healer', 3, 3.0, 7)] },
     ],
   },
@@ -104,7 +104,7 @@ const HANDCRAFTED_LEVELS: LevelConfig[] = [
       { groups: [g('normal', 16, 0.7), g('berserker', 5, 1.5, 2), g('spitter', 4, 1.5, 3)] },
       { groups: [g('tank', 5, 2.0), g('fast', 10, 0.8, 2), g('berserker', 4, 1.8, 4), g('healer', 2, 4.0, 6)] },
       { groups: [g('normal', 18, 0.6), g('ghost', 6, 1.0, 2), g('shield', 4, 2.0, 4), g('exploder', 4, 1.5, 6)] },
-      { groups: [g('fast', 16, 0.5), g('berserker', 6, 1.2, 2), g('spitter', 5, 1.5, 4)] },
+      { groups: [g('fast', 16, 0.5), g('leaper', 6, 1.0, 2), g('berserker', 6, 1.2, 3), g('spitter', 5, 1.5, 4)] },
       { groups: [g('normal', 22, 0.5), g('tank', 5, 2.0, 3), g('berserker', 5, 1.5, 5), g('healer', 3, 3.0, 7), g('shield', 3, 2.5, 9)] },
     ],
   },
@@ -112,7 +112,7 @@ const HANDCRAFTED_LEVELS: LevelConfig[] = [
     id: 8, name: '午夜医院', hpScale: 3.4, speedScale: 1.2, biome: 'hospital', bossLevel: true,
     waves: [
       { groups: [g('normal', 18, 0.6), g('summoner', 2, 4.0, 2), g('fast', 8, 0.8, 3)] },
-      { groups: [g('tank', 6, 1.8), g('normal', 14, 0.7, 2), g('spitter', 5, 1.2, 4), g('healer', 3, 3.0, 6)] },
+      { groups: [g('tank', 6, 1.8), g('normal', 14, 0.7, 2), g('jammer', 2, 3.0, 3), g('spitter', 5, 1.2, 4), g('healer', 3, 3.0, 6)] },
       { groups: [g('fast', 18, 0.5), g('ghost', 8, 0.9, 2), g('berserker', 6, 1.2, 4), g('summoner', 3, 3.5, 6)] },
       { groups: [g('normal', 24, 0.45), g('tank', 6, 1.8, 2), g('shield', 5, 2.0, 4), g('exploder', 6, 1.2, 6)] },
       { bossWave: true, groups: [g('boss', 1, 1.0), g('summoner', 3, 4.0, 3), g('healer', 3, 3.0, 5), g('fast', 12, 0.8, 8)] },
@@ -151,12 +151,12 @@ export const TOTAL_LEVELS = 50;
 const ZOMBIE_POOL_BY_TIER: Record<number, ZombieTypeKey[]> = {
   1:  ['normal', 'fast'],
   2:  ['normal', 'fast', 'tank'],
-  3:  ['normal', 'fast', 'tank', 'exploder'],
-  4:  ['normal', 'fast', 'tank', 'exploder', 'spitter', 'healer'],
-  5:  ['normal', 'fast', 'tank', 'exploder', 'spitter', 'healer', 'shield'],
-  6:  ['normal', 'fast', 'tank', 'exploder', 'spitter', 'healer', 'shield', 'ghost'],
-  7:  ['normal', 'fast', 'tank', 'exploder', 'spitter', 'healer', 'shield', 'ghost', 'berserker'],
-  8:  ['normal', 'fast', 'tank', 'exploder', 'spitter', 'healer', 'shield', 'ghost', 'berserker', 'summoner'],
+  3:  ['normal', 'fast', 'tank', 'exploder', 'splitter'],
+  4:  ['normal', 'fast', 'tank', 'exploder', 'splitter', 'spitter', 'healer'],
+  5:  ['normal', 'fast', 'tank', 'exploder', 'splitter', 'spitter', 'healer', 'shield', 'leaper'],
+  6:  ['normal', 'fast', 'tank', 'exploder', 'splitter', 'spitter', 'healer', 'shield', 'ghost', 'leaper'],
+  7:  ['normal', 'fast', 'tank', 'exploder', 'splitter', 'spitter', 'healer', 'shield', 'ghost', 'berserker', 'leaper', 'jammer'],
+  8:  ['normal', 'fast', 'tank', 'exploder', 'splitter', 'spitter', 'healer', 'shield', 'ghost', 'berserker', 'summoner', 'leaper', 'jammer'],
 };
 
 function tierFor(levelId: number): number {
@@ -205,8 +205,8 @@ function generateLevel(id: number): LevelConfig {
   const hpScale = Math.round((chapterBase + idxInChapter * 1.1) * 10) / 10;
   const speedScale = Math.round((1.3 + chapter * 0.18 + idxInChapter * 0.02) * 100) / 100;
 
-  // 波次数：每关 3~6 波；Boss 关多 1 波
-  const baseWaves = between(3, 5);
+  // 波次数：每关 5~7 波；Boss 关追加终局波
+  const baseWaves = between(5, 7);
   const waveCount = bossLevel ? baseWaves + 1 : baseWaves;
 
   const tier = tierFor(id);
@@ -244,8 +244,8 @@ function generateLevel(id: number): LevelConfig {
       // 数量随章节和波次增长
       let baseCount: number;
       if (t === 'tank') baseCount = between(2, 3 + chapter);
-      else if (t === 'healer' || t === 'summoner' || t === 'shield') baseCount = between(1, 2 + Math.floor(chapter / 2));
-      else if (t === 'exploder' || t === 'berserker' || t === 'ghost') baseCount = between(3, 6 + chapter);
+      else if (t === 'healer' || t === 'summoner' || t === 'shield' || t === 'jammer') baseCount = between(1, 2 + Math.floor(chapter / 2));
+      else if (t === 'exploder' || t === 'berserker' || t === 'ghost' || t === 'leaper' || t === 'splitter') baseCount = between(3, 6 + chapter);
       else baseCount = between(8, 14 + chapter * 2);
 
       // 间隔随章节缩短（更密集）
@@ -275,8 +275,30 @@ function generateLevel(id: number): LevelConfig {
   };
 }
 
+function expandHandcraftedWaves(level: LevelConfig): LevelConfig {
+  const targetWaves = level.id <= 3 ? 5 : 6;
+  const waves: WaveConfig[] = level.waves.map((wave) => ({
+    ...wave,
+    groups: wave.groups.map((group) => ({ ...group })),
+  }));
+  while (waves.length < targetWaves) {
+    const insertAt = Math.max(1, waves.length - 1);
+    const source = waves[Math.max(0, insertAt - 1)];
+    const intensity = 1 + waves.length * 0.08;
+    waves.splice(insertAt, 0, {
+      groups: source.groups.map((group, index) => ({
+        ...group,
+        count: Math.max(1, Math.round(group.count * intensity)),
+        interval: Math.max(0.18, Number((group.interval * 0.78).toFixed(2))),
+        delay: (group.delay ?? 0) * 0.55 + index * 0.25,
+      })),
+    });
+  }
+  return { ...level, waves };
+}
+
 // ── 合并手工 + 程序化关卡 ──
-const ALL_LEVELS: LevelConfig[] = [...HANDCRAFTED_LEVELS];
+const ALL_LEVELS: LevelConfig[] = HANDCRAFTED_LEVELS.map(expandHandcraftedWaves);
 for (let id = HANDCRAFTED_LEVELS.length + 1; id <= TOTAL_LEVELS; id++) {
   ALL_LEVELS.push(generateLevel(id));
 }

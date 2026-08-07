@@ -5,8 +5,11 @@ import {
   META_UPGRADES,
   MetaUpgradeKey,
   metaUpgradeCost,
+  ZOMBIE_CODEX,
+  ZOMBIE_TYPES,
 } from '../data/balance';
 import { LEVELS, LEVEL_ENGINE_INFO, TOTAL_LEVELS } from '../data/levels';
+import { ARMORY_ITEMS, type ArmoryItemDef } from '../data/shop';
 import { AudioSystem } from '../systems/AudioSystem';
 import { SaveManager } from '../systems/SaveManager';
 import { createButton, FONT, textStyle, titleStyle } from '../ui/helpers';
@@ -20,16 +23,18 @@ export class LevelSelectScene extends Phaser.Scene {
   private contentContainer!: Phaser.GameObjects.Container;
   private levelsContainer!: Phaser.GameObjects.Container;
   private shopContainer!: Phaser.GameObjects.Container;
+  private arsenalContainer!: Phaser.GameObjects.Container;
   private renderTarget!: Phaser.GameObjects.Container;
   private contentHeight = 0;
   private levelContentHeight = 0;
   private shopContentHeight = 0;
+  private arsenalContentHeight = 0;
   private scrollY = 0;
   private scrollHitbox!: Phaser.GameObjects.Zone;
   private scrollbar!: Phaser.GameObjects.Graphics;
   private pageLabel!: Phaser.GameObjects.Text;
   private chapterPage = 0;
-  private activeTab: 'levels' | 'shop' = 'levels';
+  private activeTab: 'levels' | 'shop' | 'arsenal' = 'levels';
   private tabButtons: Phaser.GameObjects.Container[] = [];
   private pageButtons: Phaser.GameObjects.Container[] = [];
 
@@ -65,18 +70,23 @@ export class LevelSelectScene extends Phaser.Scene {
     this.contentContainer = this.add.container(0, 0).setDepth(5);
     this.levelsContainer = this.add.container(0, 188);
     this.shopContainer = this.add.container(0, 188).setVisible(false);
-    this.contentContainer.add([this.levelsContainer, this.shopContainer]);
+    this.arsenalContainer = this.add.container(0, 188).setVisible(false);
+    this.contentContainer.add([this.levelsContainer, this.shopContainer, this.arsenalContainer]);
     this.scrollbar = this.add.graphics().setDepth(8);
 
     this.tabButtons = [
-      createButton(this, GAME_WIDTH / 2 - 100, 126, '关卡', () => this.showTab('levels'), {
-        width: 180, height: 50, fontSize: 22, color: 0x2f754b, colorDown: 0x205636,
+      createButton(this, GAME_WIDTH / 2 - 174, 126, '关卡', () => this.showTab('levels'), {
+        width: 156, height: 50, fontSize: 21, color: 0x2f754b, colorDown: 0x205636,
       }),
-      createButton(this, GAME_WIDTH / 2 + 100, 126, '金币商店', () => this.showTab('shop'), {
-        width: 180, height: 50, fontSize: 22, color: 0x7a5a19, colorDown: 0x604411,
+      createButton(this, GAME_WIDTH / 2, 126, '强化', () => this.showTab('shop'), {
+        width: 156, height: 50, fontSize: 21, color: 0x7a5a19, colorDown: 0x604411,
+      }),
+      createButton(this, GAME_WIDTH / 2 + 174, 126, '军械库', () => this.showTab('arsenal'), {
+        width: 156, height: 50, fontSize: 21, color: 0x355d78, colorDown: 0x27475c,
       }),
     ];
     this.tabButtons[1].setAlpha(0.62);
+    this.tabButtons[2].setAlpha(0.62);
 
     this.chapterPage = Phaser.Math.Clamp(
       Math.floor((SaveManager.unlockedLevel - 1) / LEVEL_ENGINE_INFO.chapterSize),
@@ -85,6 +95,7 @@ export class LevelSelectScene extends Phaser.Scene {
     this.pageLabel = this.add.text(cx, 164, '', textStyle(20, '#b0bec5')).setOrigin(0.5);
     this.buildLevelPage();
     this.buildShopPage();
+    this.buildArsenalPage();
     this.refreshPageControls();
 
     // 轻量滚动容器：商店未来扩展时仍可继续容纳内容
@@ -128,7 +139,64 @@ export class LevelSelectScene extends Phaser.Scene {
       this.renderTarget = this.levelsContainer;
       this.createLevelCell(startX + (idx % cols) * cellW, 134 + Math.floor(idx / cols) * cellH, lv.id, lv.name, lv.bossLevel);
     }
-    this.levelContentHeight = 188 + 134 + 2 * cellH + 28;
+
+    // 章节情报：填充关卡网格下方空间，给玩家明确的进度和威胁预期
+    const intelY = 500;
+    const intelBg = this.add.graphics();
+    intelBg.fillStyle(0x16242d, 0.96).fillRoundedRect(28, intelY, GAME_WIDTH - 56, 338, 8);
+    intelBg.fillStyle(0x263b32, 1).fillRect(28, intelY, GAME_WIDTH - 56, 48);
+    intelBg.lineStyle(1, 0x4d6659, 0.65).lineBetween(48, intelY + 160, GAME_WIDTH - 48, intelY + 160);
+    this.levelsContainer.add(intelBg);
+
+    const chapterLevels = LEVELS.slice(startId - 1, endId);
+    const earnedStars = chapterLevels.reduce((sum, level) => sum + SaveManager.getStars(level.id), 0);
+    const cleared = chapterLevels.filter((level) => SaveManager.getStars(level.id) > 0).length;
+    const threatTypes = Array.from(new Set(
+      chapterLevels.flatMap((level) => level.waves.flatMap((wave) => wave.groups.map((group) => group.type))),
+    )).sort((a, b) => (ZOMBIE_CODEX[b]?.threat ?? 0) - (ZOMBIE_CODEX[a]?.threat ?? 0)).slice(0, 7);
+    const modifiers = [
+      '腐尸密度上升 · 最终波必定触发尸潮',
+      '快速单位增多 · 需要穿透与减速',
+      '精英护航加强 · 优先击杀支援单位',
+      '远程威胁增加 · 注意防线持续损耗',
+      '多首领压境 · 保留过载应对终局',
+    ];
+
+    this.levelsContainer.add(this.add.text(48, intelY + 24, '章节作战情报', {
+      fontFamily: FONT, fontSize: '24px', fontStyle: 'bold', color: '#ffffff',
+    }).setOrigin(0, 0.5));
+    this.levelsContainer.add(this.add.text(GAME_WIDTH - 48, intelY + 24, `${cleared}/10 关  ·  ${earnedStars}/30 星`, {
+      fontFamily: FONT, fontSize: '18px', fontStyle: 'bold', color: '#ffd54a',
+    }).setOrigin(1, 0.5));
+
+    const progress = Phaser.Math.Clamp(earnedStars / 30, 0, 1);
+    const progressG = this.add.graphics();
+    progressG.fillStyle(0x0b1116, 0.9).fillRoundedRect(48, intelY + 70, GAME_WIDTH - 96, 14, 7);
+    if (progress > 0) progressG.fillStyle(0x4caf50, 1).fillRoundedRect(50, intelY + 72, (GAME_WIDTH - 100) * progress, 10, 5);
+    this.levelsContainer.add(progressG);
+    this.levelsContainer.add(this.add.text(48, intelY + 112, `章节词缀  ${modifiers[this.chapterPage]}`, {
+      fontFamily: FONT, fontSize: '18px', fontStyle: 'bold', color: '#a9c9b4',
+      wordWrap: { width: GAME_WIDTH - 96 },
+    }));
+    this.levelsContainer.add(this.add.text(48, intelY + 180, '可能遭遇', {
+      fontFamily: FONT, fontSize: '19px', fontStyle: 'bold', color: '#ffd54a',
+    }));
+
+    threatTypes.forEach((type, i) => {
+      const stats = ZOMBIE_TYPES[type];
+      const codex = ZOMBIE_CODEX[type];
+      if (!stats || !codex) return;
+      const x = 78 + i * 92;
+      this.levelsContainer.add(this.add.image(x, intelY + 242, stats.texture).setScale(Math.min(0.68, stats.scale * 0.58)));
+      this.levelsContainer.add(this.add.text(x, intelY + 294, codex.role.replace('者', ''), {
+        fontFamily: FONT, fontSize: '13px', color: '#b0bec5', align: 'center',
+      }).setOrigin(0.5));
+    });
+    this.levelsContainer.add(this.add.text(48, intelY + 320, '章节奖励：首次通关金币、星级记录与下一关解锁', {
+      fontFamily: FONT, fontSize: '16px', color: '#78909c',
+    }).setOrigin(0, 0.5));
+
+    this.levelContentHeight = 188 + intelY + 356;
     if (this.activeTab === 'levels') this.contentHeight = this.levelContentHeight;
     this.pageLabel.setText(`章节 ${this.chapterPage + 1} / ${Math.ceil(TOTAL_LEVELS / chapterSize)}  ·  ${startId}-${endId} 关`);
     this.setScroll(0);
@@ -146,15 +214,79 @@ export class LevelSelectScene extends Phaser.Scene {
     if (this.activeTab === 'shop') this.contentHeight = this.shopContentHeight;
   }
 
-  private showTab(tab: 'levels' | 'shop'): void {
+  private buildArsenalPage(): void {
+    this.arsenalContainer.removeAll(true);
+    this.arsenalContainer.add(this.add.text(GAME_WIDTH / 2, 30, '军械与战场装配', {
+      ...textStyle(30, '#7dd3fc'), stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5));
+    this.arsenalContainer.add(this.add.text(GAME_WIDTH / 2, 64, '购买后永久解锁 · 同类装备可随时切换', textStyle(16, '#8a9aa8')).setOrigin(0.5));
+
+    ARMORY_ITEMS.forEach((item, index) => {
+      const col = index % 2;
+      const row = Math.floor(index / 2);
+      this.createArmoryCard(item, 190 + col * 340, 190 + row * 254);
+    });
+    this.arsenalContentHeight = 188 + 190 + 3 * 254 + 20;
+    if (this.activeTab === 'arsenal') this.contentHeight = this.arsenalContentHeight;
+  }
+
+  private createArmoryCard(item: ArmoryItemDef, x: number, y: number): void {
+    const w = 310, h = 224;
+    const owned = SaveManager.ownsArmoryItem(item.key);
+    const equipped = SaveManager.getEquippedArmoryItem(item.kind) === item.key;
+    const affordable = SaveManager.coins >= item.cost;
+    const g = this.add.graphics();
+    g.fillStyle(0x0b1116, 0.35).fillRoundedRect(x - w / 2 + 3, y - h / 2 + 5, w, h, 8);
+    g.fillStyle(equipped ? 0x183a36 : 0x1b2733, 1).fillRoundedRect(x - w / 2, y - h / 2, w, h, 8);
+    g.lineStyle(2, equipped ? 0x4de7b0 : 0x3f5666, 0.9).strokeRoundedRect(x - w / 2, y - h / 2, w, h, 8);
+    this.arsenalContainer.add(g);
+    this.arsenalContainer.add(this.add.image(x - 102, y - 52, item.icon).setScale(0.86));
+    this.arsenalContainer.add(this.add.text(x - 62, y - 82, item.name, {
+      fontFamily: FONT, fontSize: '22px', fontStyle: 'bold', color: equipped ? '#66e0b0' : '#ffffff',
+    }));
+    const kindLabel = item.kind === 'background' ? '战场背景' : item.kind === 'decor' ? '基地装饰' : '辅助炮台';
+    this.arsenalContainer.add(this.add.text(x - 62, y - 50, kindLabel, textStyle(15, '#7dd3fc')));
+    this.arsenalContainer.add(this.add.text(x - 130, y + 2, item.desc, {
+      ...textStyle(16, '#aab8c2'), wordWrap: { width: 260 }, align: 'left',
+    }));
+
+    const label = equipped ? '卸下' : owned ? '装备' : `${item.cost} 金`;
+    const button = createButton(this, x, y + 72, label, () => {
+      if (equipped) {
+        SaveManager.equipArmoryItem(item.kind, item.kind === 'background' ? 'default' : 'none');
+        AudioSystem.play('ui_click');
+        this.buildArsenalPage();
+        return;
+      }
+      if (!SaveManager.ownsArmoryItem(item.key)) {
+        if (!SaveManager.buyArmoryItem(item.key, item.cost)) return;
+        this.coinText.setText(`${SaveManager.coins}`);
+      }
+      SaveManager.equipArmoryItem(item.kind, item.key);
+      AudioSystem.play('upgrade');
+      this.buildArsenalPage();
+    }, {
+      width: 220, height: 52, fontSize: 19,
+      color: equipped ? 0x455a64 : owned ? 0x2f8f63 : affordable ? 0xb8860b : 0x4a5560,
+      colorDown: owned ? 0x236e4c : 0x8a6508,
+      disabled: !owned && !affordable,
+    });
+    this.arsenalContainer.add(button);
+  }
+
+  private showTab(tab: 'levels' | 'shop' | 'arsenal'): void {
     this.activeTab = tab;
     this.levelsContainer.setVisible(tab === 'levels');
     this.shopContainer.setVisible(tab === 'shop');
+    this.arsenalContainer.setVisible(tab === 'arsenal');
     this.tabButtons[0].setAlpha(tab === 'levels' ? 1 : 0.62);
     this.tabButtons[1].setAlpha(tab === 'shop' ? 1 : 0.62);
+    this.tabButtons[2].setAlpha(tab === 'arsenal' ? 1 : 0.62);
     this.pageLabel.setVisible(tab === 'levels');
     this.pageButtons.forEach((b) => b.setVisible(tab === 'levels'));
-    this.contentHeight = tab === 'levels' ? this.levelContentHeight : this.shopContentHeight;
+    this.contentHeight = tab === 'levels'
+      ? this.levelContentHeight
+      : tab === 'shop' ? this.shopContentHeight : this.arsenalContentHeight;
     this.setScroll(0);
     AudioSystem.play('ui_click');
   }

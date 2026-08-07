@@ -75,6 +75,18 @@ export const SKILLS: SkillDef[] = [
     key: 'laserBeam', name: '激光束', desc: '持续激光 (伤害=攻击×0.5/帧)',
     icon: 'icon_laser', rarity: 'legendary', category: 'offense', maxLevel: 1, perLevel: 1,
   },
+  {
+    key: 'frostRounds', name: '冰冻弹头', desc: '命中减速12%，持续2.5秒',
+    icon: 'icon_frost', rarity: 'rare', category: 'offense', maxLevel: 3, perLevel: 0.12,
+  },
+  {
+    key: 'executioner', name: '处决协议', desc: '对低血量敌人造成额外伤害',
+    icon: 'icon_execute', rarity: 'epic', category: 'offense', maxLevel: 3, perLevel: 0.15,
+  },
+  {
+    key: 'airSupport', name: '空中支援', desc: '周期发射无人机追踪弹',
+    icon: 'icon_air_support', rarity: 'epic', category: 'offense', maxLevel: 3, perLevel: 1,
+  },
 
   // ── 防御类 ──
   {

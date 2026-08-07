@@ -69,13 +69,15 @@ export class WaveManager {
     this.isHordeWave = this.waveIndex === this.level.waves.length - 1;
     this.hordeProgress = 0;
     this.tasks = this.level.waves[this.waveIndex].groups.map((gr: SpawnGroup) => {
-      const total = Math.max(1, Math.round(gr.count * this.monsterMultiplier));
+      const countScale = 1 + this.waveIndex * 0.16;
+      const paceScale = 1 + this.waveIndex * 0.28;
+      const total = Math.max(1, Math.round(gr.count * this.monsterMultiplier * countScale));
       return {
         type: gr.type,
         remaining: total,
         total,
-        interval: gr.interval,
-        nextAt: gr.delay ?? 0,
+        interval: Math.max(0.06, gr.interval / paceScale),
+        nextAt: (gr.delay ?? 0) * 0.5,
       };
     });
 

@@ -14,6 +14,7 @@ import {
   GHOST_PHASE_INTERVAL,
   GHOST_VISIBLE_TIME,
   SUMMONER_INTERVAL,
+  LEAPER_INTERVAL,
   RANGED_ZOMBIE_TYPES,
 } from '../data/balance';
 
@@ -36,6 +37,10 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
   private healTimer = 0;
   private ghostTimer = 0;
   private isGhostVisible = true;
+  private slowMultiplier = 1;
+  private slowTimer = 0;
+  private leapTimer = 0;
+  private leapBurstTimer = 0;
 
   private hpBar!: Phaser.GameObjects.Graphics;
   private shieldBar!: Phaser.GameObjects.Graphics;
@@ -77,10 +82,15 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     this.healTimer = 0;
     this.ghostTimer = type === 'ghost' ? GHOST_VISIBLE_TIME : 0;
     this.isGhostVisible = type !== 'ghost';
+    this.slowMultiplier = 1;
+    this.slowTimer = 0;
+    this.leapTimer = 0;
+    this.leapBurstTimer = 0;
 
     this.enableBody(true, x, y, true, true);
     this.setTexture(stats.texture);
     this.setScale(stats.scale);
+    this.setRotation(0);
     this.clearTint();
     this.setAlpha(1);
     const body = this.body as Phaser.Physics.Arcade.Body;
@@ -160,10 +170,26 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     return this.hp <= 0;
   }
 
+  applySlow(multiplier: number, duration: number): void {
+    if (!this.active || this.hp <= 0) return;
+    const next = Phaser.Math.Clamp(multiplier, 0.35, 1);
+    const previous = this.slowMultiplier;
+    this.slowMultiplier = Math.min(this.slowMultiplier, next);
+    this.slowTimer = Math.max(this.slowTimer, duration);
+    const body = this.body as Phaser.Physics.Arcade.Body;
+    if (body.velocity.y > 0 && previous > 0) {
+      body.setVelocityY(body.velocity.y * (this.slowMultiplier / previous));
+    }
+    this.setTint(0x9be7ff);
+  }
+
   private flashHit(): void {
     this.setTintFill(0xffffff);
     this.scene.time.delayedCall(60, () => {
-      if (this.active) this.clearTint();
+      if (this.active) {
+        if (this.slowTimer > 0) this.setTint(0x9be7ff);
+        else this.clearTint();
+      }
     });
   }
 
@@ -221,6 +247,17 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     const body = this.body as Phaser.Physics.Arcade.Body;
     const bottom = this.y + this.displayHeight / 2;
 
+    if (this.slowTimer > 0) {
+      this.slowTimer -= dt;
+      if (this.slowTimer <= 0) {
+        this.slowMultiplier = 1;
+        this.clearTint();
+        if (bottom < WALL_Y && body.velocity.y > 0 && !RANGED_ZOMBIE_TYPES.has(this.zType)) {
+          this.setVelocity(0, this.baseSpeed);
+        }
+      }
+    }
+
     // ── 幽灵隐身 ──
     if (this.zType === 'ghost' && this.hp > 0) {
       this.ghostTimer -= dt;
@@ -239,7 +276,24 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     if (this.zType === 'berserker' && this.hp > 0 && bottom < WALL_Y) {
       const hpRatio = this.hp / this.maxHp;
       const speedMult = 1 + (1 - hpRatio) * 1.8; // 血量越低越快，最高2.8倍
-      this.setVelocity(0, this.baseSpeed * speedMult);
+      this.setVelocity(0, this.baseSpeed * speedMult * this.slowMultiplier);
+    }
+
+    // ── 跃袭者周期冲刺 ──
+    if (this.zType === 'leaper' && this.hp > 0 && bottom < WALL_Y) {
+      if (this.leapBurstTimer > 0) {
+        this.leapBurstTimer -= dt;
+        this.setVelocity(0, this.baseSpeed * 3.2 * this.slowMultiplier);
+        this.setRotation(Math.sin(time * 0.025) * 0.08);
+      } else {
+        this.setRotation(0);
+        this.leapTimer += dt;
+        this.setVelocity(0, this.baseSpeed * this.slowMultiplier);
+        if (this.leapTimer >= LEAPER_INTERVAL) {
+          this.leapTimer = 0;
+          this.leapBurstTimer = 0.48;
+        }
+      }
     }
 
     // ── 远程攻击（喷射者） ──
@@ -257,7 +311,7 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
           this.onSpit(this.x, this.y - this.displayHeight / 2, angle, this.wallDamage);
         }
       } else if (bottom < WALL_Y && body.velocity.y === 0) {
-        this.setVelocity(0, this.baseSpeed);
+        this.setVelocity(0, this.baseSpeed * this.slowMultiplier);
       }
     }
 
@@ -265,6 +319,7 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     if (!RANGED_ZOMBIE_TYPES.has(this.zType) && bottom >= WALL_Y) {
       if (body.velocity.y !== 0) {
         this.setVelocity(0, 0);
+        this.setRotation(0);
         this.y = WALL_Y - this.displayHeight / 2;
       }
       this.attackTimer += dt;

@@ -21,6 +21,7 @@ export class SkillSystem {
   private levels: Record<string, number> = {};
   private activeSynergies: Set<string> = new Set();
   private overdriveActive = false;
+  private enemyFireRateMultiplier = 1;
 
   /** 连杀计数 */
   killStreak = 0;
@@ -53,7 +54,7 @@ export class SkillSystem {
     if (this.hasSynergy('barrage') && this.getLevel('multiBarrel') > 0) {
       rate *= 1.5;
     }
-    return rate * (this.overdriveActive ? 1.75 : 1);
+    return rate * (this.overdriveActive ? 1.75 : 1) * this.enemyFireRateMultiplier;
   }
 
   get bulletCount(): number {
@@ -139,12 +140,41 @@ export class SkillSystem {
     return this.getLevel('magnet') > 0;
   }
 
+  get frostSlowMultiplier(): number {
+    const level = this.getLevel('frostRounds');
+    return level > 0 ? Math.max(0.55, 1 - level * getSkill('frostRounds').perLevel) : 1;
+  }
+
+  get executionThreshold(): number {
+    const level = this.getLevel('executioner');
+    return level > 0 ? 0.18 + level * 0.06 : 0;
+  }
+
+  get executionDamageMultiplier(): number {
+    const level = this.getLevel('executioner');
+    return level > 0 ? 1.45 + level * getSkill('executioner').perLevel : 1;
+  }
+
+  get airSupportInterval(): number {
+    const level = this.getLevel('airSupport');
+    return level > 0 ? Math.max(1.8, 4.5 - level * 0.75) : Infinity;
+  }
+
+  get airSupportCount(): number {
+    const level = this.getLevel('airSupport');
+    return level >= 3 ? 2 : level > 0 ? 1 : 0;
+  }
+
   get isOverdriveActive(): boolean {
     return this.overdriveActive;
   }
 
   setOverdrive(active: boolean): void {
     this.overdriveActive = active;
+  }
+
+  setEnemyFireRateMultiplier(multiplier: number): void {
+    this.enemyFireRateMultiplier = Math.min(1, Math.max(0.65, multiplier));
   }
 
   get luckBonus(): number {

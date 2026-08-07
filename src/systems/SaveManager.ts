@@ -1,4 +1,10 @@
 import { META_UPGRADES, type MetaUpgradeKey } from '../data/balance';
+import type { ArmoryItemKind } from '../data/shop';
+
+interface ArmorySave {
+  owned: string[];
+  equipped: Record<ArmoryItemKind, string>;
+}
 
 // 存档数据结构
 export interface SaveData {
@@ -10,6 +16,7 @@ export interface SaveData {
   stars: Record<number, number>;
   // 局外养成等级
   meta: Record<MetaUpgradeKey, number>;
+  armory: ArmorySave;
 }
 
 const SAVE_KEY = 'zombie-cannon-save-v1';
@@ -21,6 +28,10 @@ function defaultSave(): SaveData {
     unlockedLevel: 1,
     stars: {},
     meta: { damage: 0, fireRate: 0, wallHp: 0, coinBonus: 0, overdriveStart: 0, salvage: 0 },
+    armory: {
+      owned: [],
+      equipped: { background: 'default', decor: 'none', support: 'none' },
+    },
   };
 }
 
@@ -48,12 +59,24 @@ class SaveManagerImpl {
         Object.fromEntries(
           Object.entries(o).filter(([, v]) => typeof v === 'number' && Number.isFinite(v)),
         ) as Record<number, number>;
+      const armory = rec(parsed.armory);
+      const equipped = rec(armory.equipped);
       return {
         version: num(parsed.version, def.version),
         coins: num(parsed.coins, def.coins),
         unlockedLevel: num(parsed.unlockedLevel, def.unlockedLevel),
         stars: { ...def.stars, ...filterNum(rec(parsed.stars)) },
         meta: { ...def.meta, ...filterNum(rec(parsed.meta)) as Record<MetaUpgradeKey, number> },
+        armory: {
+          owned: Array.isArray(armory.owned)
+            ? armory.owned.filter((key): key is string => typeof key === 'string')
+            : def.armory.owned,
+          equipped: {
+            background: typeof equipped.background === 'string' ? equipped.background : def.armory.equipped.background,
+            decor: typeof equipped.decor === 'string' ? equipped.decor : def.armory.equipped.decor,
+            support: typeof equipped.support === 'string' ? equipped.support : def.armory.equipped.support,
+          },
+        },
       };
     } catch {
       return defaultSave();
@@ -112,6 +135,27 @@ class SaveManagerImpl {
     if (this.getMetaLevel(key) >= META_UPGRADES[key].max) return;
     this.data.meta[key] = this.getMetaLevel(key) + 1;
     this.save();
+  }
+
+  ownsArmoryItem(key: string): boolean {
+    return this.data.armory.owned.includes(key);
+  }
+
+  buyArmoryItem(key: string, cost: number): boolean {
+    if (this.ownsArmoryItem(key) || !this.spendCoins(cost)) return false;
+    this.data.armory.owned.push(key);
+    this.save();
+    return true;
+  }
+
+  equipArmoryItem(kind: ArmoryItemKind, key: string): void {
+    if (key !== 'default' && key !== 'none' && !this.ownsArmoryItem(key)) return;
+    this.data.armory.equipped[kind] = key;
+    this.save();
+  }
+
+  getEquippedArmoryItem(kind: ArmoryItemKind): string {
+    return this.data.armory.equipped[kind];
   }
 
   // 调试用：清空存档

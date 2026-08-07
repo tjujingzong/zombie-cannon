@@ -17,6 +17,7 @@ export class BootScene extends Phaser.Scene {
       this.makeCannon();
       this.makeWall();
       this.makeUpgradeIcons();
+      this.makeArmoryIcons();
       this.makeParticles();
       this.makeAcidBall();
       this.makeExplosionEffect();
@@ -195,6 +196,23 @@ export class BootScene extends Phaser.Scene {
       g.lineStyle(2, 0xce93d8, 0.7);
       g.strokeCircle(cx, h * 0.08, 14);
     });
+    // 跃袭者：高亮护膝与前倾警示纹
+    this.drawZombie('zombie_leaper', 0xb45309, 0xf59e0b, 64, (g, cx, h, w) => {
+      g.fillStyle(0xfff176, 0.9).fillTriangle(cx - w * 0.24, h * 0.52, cx + w * 0.2, h * 0.46, cx + w * 0.12, h * 0.6);
+      g.fillStyle(0x263238, 0.8).fillRect(cx - w * 0.22, h * 0.8, w * 0.16, 6);
+    });
+    // 分裂母体：荧光裂纹
+    this.drawZombie('zombie_splitter', 0x4d6b35, 0x91b66c, 64, (g, cx, h, w) => {
+      g.lineStyle(3, 0xc6ff00, 0.9).lineBetween(cx, h * 0.34, cx - w * 0.16, h * 0.62);
+      g.lineBetween(cx, h * 0.34, cx + w * 0.18, h * 0.56);
+      g.fillStyle(0xc6ff00, 0.6).fillCircle(cx, h * 0.46, 7);
+    });
+    // 电磁干扰者：蓝紫线圈
+    this.drawZombie('zombie_jammer', 0x283593, 0x5c6bc0, 64, (g, cx, h, w) => {
+      g.lineStyle(3, 0x80d8ff, 0.9).strokeCircle(cx, h * 0.47, w * 0.22);
+      g.fillStyle(0xe1f5fe, 1).fillCircle(cx, h * 0.47, 5);
+      g.lineStyle(2, 0xb388ff, 0.8).lineBetween(cx, h * 0.3, cx + w * 0.28, h * 0.18);
+    });
   }
 
   private makeCoin(): void {
@@ -316,6 +334,24 @@ export class BootScene extends Phaser.Scene {
       g.fillStyle(0xf44336, 1).fillRect(28, 4, 8, 56);
       g.fillStyle(0xff8a80, 0.6).fillRect(22, 4, 20, 56);
       g.fillStyle(0xffcdd2, 1).fillRect(30, 4, 4, 56);
+    });
+    mk('icon_frost', (g) => {
+      g.lineStyle(5, 0x80deea, 1);
+      g.lineBetween(32, 6, 32, 58);
+      g.lineBetween(8, 20, 56, 44);
+      g.lineBetween(8, 44, 56, 20);
+      g.fillStyle(0xe0f7fa, 1).fillCircle(32, 32, 7);
+    });
+    mk('icon_execute', (g) => {
+      g.lineStyle(5, 0xff5252, 1).strokeCircle(32, 32, 20);
+      g.lineStyle(4, 0xffffff, 0.9).lineBetween(12, 52, 52, 12);
+      g.fillStyle(0xffd54a, 1).fillTriangle(44, 8, 56, 8, 56, 20);
+    });
+    mk('icon_air_support', (g) => {
+      g.fillStyle(0x90a4ae, 1).fillRoundedRect(12, 25, 40, 14, 5);
+      g.fillStyle(0x4fc3f7, 1).fillTriangle(8, 32, 24, 18, 24, 46);
+      g.fillTriangle(56, 32, 40, 18, 40, 46);
+      g.fillStyle(0xffd54a, 1).fillCircle(32, 32, 5);
     });
 
     // ── 防御类 ──
@@ -492,6 +528,45 @@ export class BootScene extends Phaser.Scene {
         pts.push(new Phaser.Math.Vector2(cx + Math.cos(a) * r, cy + Math.sin(a) * r));
       }
       g.fillPoints(pts, true);
+    });
+  }
+
+  private makeArmoryIcons(): void {
+    const mk = (key: string, draw: (g: Phaser.GameObjects.Graphics) => void) => {
+      const g = this.g();
+      draw(g);
+      g.generateTexture(key, 64, 64);
+      g.destroy();
+    };
+    mk('icon_bg_embers', (g) => {
+      g.fillGradientStyle(0x2a1410, 0x2a1410, 0x7a3218, 0x7a3218, 1).fillRoundedRect(4, 6, 56, 52, 8);
+      g.fillStyle(0xff6d00, 0.9).fillCircle(18, 44, 4).fillCircle(42, 34, 3).fillCircle(50, 48, 5);
+    });
+    mk('icon_bg_neon', (g) => {
+      g.fillGradientStyle(0x0b1020, 0x0b1020, 0x123b4a, 0x123b4a, 1).fillRoundedRect(4, 6, 56, 52, 8);
+      g.lineStyle(3, 0x4de7ff, 0.9).lineBetween(10, 48, 52, 16);
+      g.lineStyle(2, 0xff4fd8, 0.8).lineBetween(14, 18, 52, 46);
+    });
+    mk('icon_floodlight', (g) => {
+      g.fillStyle(0x78909c, 1).fillRect(29, 26, 6, 32);
+      g.fillStyle(0xffd54a, 1).fillRoundedRect(17, 10, 30, 20, 5);
+      g.fillStyle(0xffffff, 0.55).fillTriangle(20, 30, 44, 30, 54, 58);
+    });
+    mk('icon_support_sentry', (g) => {
+      g.fillStyle(0x455a64, 1).fillRoundedRect(10, 40, 44, 16, 5);
+      g.fillStyle(0x90a4ae, 1).fillRoundedRect(23, 21, 18, 25, 5);
+      g.fillStyle(0xffd54a, 1).fillRoundedRect(30, 8, 8, 25, 3);
+    });
+    mk('icon_support_tesla', (g) => {
+      g.fillStyle(0x455a64, 1).fillRoundedRect(16, 46, 32, 12, 4);
+      g.lineStyle(5, 0x4fc3f7, 1).lineBetween(32, 48, 32, 16);
+      g.fillStyle(0xfff176, 1).fillTriangle(32, 4, 22, 26, 34, 24);
+      g.fillTriangle(34, 24, 44, 18, 30, 42);
+    });
+    mk('icon_support_mortar', (g) => {
+      g.fillStyle(0x455a64, 1).fillRoundedRect(10, 45, 44, 13, 4);
+      g.lineStyle(9, 0x90a4ae, 1).lineBetween(25, 43, 42, 14);
+      g.fillStyle(0xff6d00, 1).fillCircle(45, 10, 7);
     });
   }
 
