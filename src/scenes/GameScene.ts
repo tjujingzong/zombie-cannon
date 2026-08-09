@@ -16,9 +16,37 @@ import { Bullet } from '../entities/Bullet';
 import { Cannon } from '../entities/Cannon';
 import { Coin } from '../entities/Coin';
 import { Zombie } from '../entities/Zombie';
-import { FONT, createOverlay, textStyle } from '../ui/helpers';
+import { FONT, createButton, createOverlay, textStyle } from '../ui/helpers';
 import { RARITY_HEX, getSkill, type SynergyDef } from '../data/skills';
 import type { RollChoice } from '../systems/SkillSystem';
+import {
+  BUILD_PATHS,
+  DAMAGE_SOURCE_LABELS,
+  type CombatPerformanceSnapshot,
+  type DamageSourceKey,
+  type EliteAffix,
+} from '../data/combat';
+import type { Rarity } from '../data/skills';
+import { BattlefieldEventSystem, type ActiveBattlefieldEvent } from '../systems/BattlefieldEventSystem';
+import { getDailyChallenge, type DailyChallengeConfig } from '../data/daily';
+import { ENDLESS_LEVEL } from '../data/endless';
+import { EndlessRunSystem } from '../systems/EndlessRunSystem';
+import {
+  createSeededRandom,
+  deriveSeed,
+  randomBetween,
+  type RandomSource,
+} from '../systems/SeededRandom';
+import {
+  getBehaviorEquipment,
+  type BehaviorLoadout,
+} from '../data/equipment';
+import type { BulletProfile } from '../entities/Bullet';
+import {
+  getCompanionProtocol,
+  type CompanionProtocolKey,
+} from '../data/companion';
+import { getChallengeContract, type ChallengeContractKey, type ChallengeContractDef } from '../data/challengeContracts';
 
 // 各 biome 的背景色调（与 levels.ts BIOME_CYCLE 对齐）
 const BIOME_PALETTE: Record<string, { top: number; bottom: number; road: number; ground: number }> = {
@@ -33,6 +61,13 @@ const BIOME_PALETTE: Record<string, { top: number; bottom: number; road: number;
   city:      { top: 0x101a22, bottom: 0x18283a, road: 0x4fc3f7, ground: 0x080e16 },
   throne:    { top: 0x2a1020, bottom: 0x3a1830, road: 0xff1744, ground: 0x180a14 },
 };
+
+interface GameSceneData {
+  levelId?: number;
+  dailyChallengeDate?: string;
+  endlessMode?: boolean;
+  endlessSeed?: number;
+}
 
 export class GameScene extends Phaser.Scene {
   private level!: LevelConfig;
@@ -49,9 +84,12 @@ export class GameScene extends Phaser.Scene {
   private laserGraphics!: Phaser.GameObjects.Graphics;
   private lightningGraphics!: Phaser.GameObjects.Graphics;
   private supportGraphics!: Phaser.GameObjects.Graphics;
+  private companionGraphics!: Phaser.GameObjects.Graphics;
   private conductorGraphics!: Phaser.GameObjects.Graphics;
   private bloodEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
   private explosionEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
+  private sparkEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
+  private smokeEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
   /** 氛围粒子（飘落的灰尘/灰烬） */
   private ambientEmbers: Phaser.GameObjects.Image[] = [];
 
@@ -88,6 +126,39 @@ export class GameScene extends Phaser.Scene {
   private gravityWells: { sprite: Phaser.GameObjects.Image; x: number; y: number; timer: number; tick: number }[] = [];
   private deployedMines: Phaser.GameObjects.Image[] = [];
   private thermalShockReadyAt = new WeakMap<Zombie, number>();
+  private damageTotals: Record<DamageSourceKey, number> = this.createEmptyDamageTotals();
+  private contractOfferWaves = new Set<number>();
+  private contractWave = 0;
+  private performanceLowFps = 60;
+  private performanceSampleTimer = 0;
+  private battlefieldEvents!: BattlefieldEventSystem;
+  private eventOverlay?: Phaser.GameObjects.Rectangle;
+  private supplyDrop?: Phaser.GameObjects.Container;
+  private eventEnemySpeedMultiplier = 1;
+  private eventFireRateMultiplier = 1;
+  private eventEliteQuota = 0;
+  private eventEliteSpawned = 0;
+  private eventEliteKills = 0;
+  private waveStartDelay = 0;
+  private eventGameplayStarted = false;
+  private dailyChallenge: DailyChallengeConfig | null = null;
+  private endlessRun: EndlessRunSystem | null = null;
+  private eventRandom: RandomSource = Math.random;
+  private skillRandom: RandomSource = Math.random;
+  private eliteRandom: RandomSource = Math.random;
+  private spawnRandom: RandomSource = Math.random;
+  private waveRandom: RandomSource = Math.random;
+  private behaviorLoadout!: BehaviorLoadout;
+  private equipmentVolleyCount = 0;
+  private equipmentProjectileCount = 0;
+  private cyclerHeat = 0;
+  private cyclerLockTimer = 0;
+  private wallModuleCooldown = 0;
+  private companionProtocol!: CompanionProtocolKey;
+  private companionCharge = 0;
+  private companionDrone?: Phaser.GameObjects.Image;
+  private challengeContract!: ChallengeContractKey;
+  private challengeContractDef!: ChallengeContractDef;
 
   // 供 UIScene 读取的公开状态
   runCoins = 0;
@@ -103,6 +174,44 @@ export class GameScene extends Phaser.Scene {
   enemyCount = 0;
   overdriveCharge = 0;
   overdriveReady = false;
+  contractStatus = '';
+  battlefieldEventStatus = '';
+  battlefieldEventProgress = 0;
+  battlefieldEventColor = 0xffffff;
+  dailyChallengeStatus = '';
+  dailyChallengeColor = 0xffffff;
+  endlessStatus = '';
+  endlessColor = 0xffa726;
+  behaviorEquipmentLabel = '';
+  behaviorEquipmentStatus = '';
+  behaviorEquipmentColor = 0xce93d8;
+  behaviorTelemetry = {
+    volleys: 0,
+    cryoBursts: 0,
+    shrapnelBursts: 0,
+    volatileBursts: 0,
+    wallPulses: 0,
+    salvageRepairs: 0,
+    reflectionBlasts: 0,
+  };
+  companionStatus = '';
+  companionColor = 0xffd54a;
+  challengeContractStatus = '';
+  companionTelemetry = {
+    hunterShots: 0,
+    vortexBursts: 0,
+    controlledTargets: 0,
+    medicRepairs: 0,
+  };
+  isDailyMode = false;
+  isEndlessMode = false;
+  private runOverdriveUses = 0;
+  private runSynergiesActivated = 0;
+  private runBossKills = 0;
+  private runWavesCleared = 0;
+  performanceStats: CombatPerformanceSnapshot = {
+    enabled: false, fps: 60, lowFps: 60, enemies: 0, projectiles: 0, particles: 0, elites: 0,
+  };
 
   private choosingUpgrade = false;
   private finished = false;
@@ -115,9 +224,62 @@ export class GameScene extends Phaser.Scene {
     super('Game');
   }
 
-  init(data: { levelId?: number }): void {
-    this.level = getLevel(data.levelId ?? 1);
+  init(data: GameSceneData = {}): void {
+    this.isEndlessMode = Boolean(data.endlessMode);
+    this.isDailyMode = !this.isEndlessMode && Boolean(data.dailyChallengeDate);
+    this.dailyChallenge = this.isDailyMode && data.dailyChallengeDate
+      ? getDailyChallenge(data.dailyChallengeDate)
+      : null;
+    const generatedEndlessSeed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
+    this.endlessRun = this.isEndlessMode
+      ? new EndlessRunSystem(data.endlessSeed ?? generatedEndlessSeed)
+      : null;
+    this.level = this.isEndlessMode
+      ? ENDLESS_LEVEL
+      : getLevel(this.dailyChallenge?.levelId ?? data.levelId ?? 1);
+    const seededRun = this.dailyChallenge?.seed ?? this.endlessRun?.seed;
+    if (seededRun !== undefined) {
+      this.eventRandom = createSeededRandom(deriveSeed(seededRun, 'events'));
+      this.skillRandom = createSeededRandom(deriveSeed(seededRun, 'skills'));
+      this.eliteRandom = createSeededRandom(deriveSeed(seededRun, 'elites'));
+      this.spawnRandom = createSeededRandom(deriveSeed(seededRun, 'spawns'));
+      this.waveRandom = createSeededRandom(deriveSeed(seededRun, 'waves'));
+    } else {
+      this.eventRandom = Math.random;
+      this.skillRandom = Math.random;
+      this.eliteRandom = Math.random;
+      this.spawnRandom = Math.random;
+      this.waveRandom = Math.random;
+    }
     this.runCoins = 0;
+    this.behaviorLoadout = SaveManager.getBehaviorLoadout();
+    this.equipmentVolleyCount = 0;
+    this.equipmentProjectileCount = 0;
+    this.cyclerHeat = 0;
+    this.cyclerLockTimer = 0;
+    this.wallModuleCooldown = 0;
+    this.companionProtocol = SaveManager.getEquippedCompanionProtocol();
+    this.companionCharge = 0;
+    this.challengeContract = SaveManager.getChallengeContract();
+    this.challengeContractDef = getChallengeContract(this.challengeContract);
+    this.challengeContractStatus = this.challengeContractDef.key === 'none'
+      ? '' : `挑战契约 · ${this.challengeContractDef.name}`;
+    this.behaviorTelemetry = {
+      volleys: 0,
+      cryoBursts: 0,
+      shrapnelBursts: 0,
+      volatileBursts: 0,
+      wallPulses: 0,
+      salvageRepairs: 0,
+      reflectionBlasts: 0,
+    };
+    this.companionTelemetry = {
+      hunterShots: 0,
+      vortexBursts: 0,
+      controlledTargets: 0,
+      medicRepairs: 0,
+    };
+    this.refreshCompanionStatus();
     this.choosingUpgrade = false;
     this.finished = false;
     this.transitioning = false;
@@ -150,25 +312,76 @@ export class GameScene extends Phaser.Scene {
     this.gravityWells = [];
     this.deployedMines = [];
     this.thermalShockReadyAt = new WeakMap<Zombie, number>();
+    this.damageTotals = this.createEmptyDamageTotals();
+    const lastOffer = Math.max(1, this.level.waves.length - 1);
+    this.contractOfferWaves = this.isEndlessMode ? new Set() : new Set([1, lastOffer]);
+    this.contractWave = 0;
+    this.contractStatus = '';
+    this.performanceLowFps = 60;
+    this.performanceSampleTimer = 0;
+    this.performanceStats = {
+      enabled: false, fps: 60, lowFps: 60, enemies: 0, projectiles: 0, particles: 0, elites: 0,
+    };
+    let eligibleEventWaves: number[];
+    if (this.isEndlessMode) {
+      eligibleEventWaves = [3, 7];
+    } else {
+      eligibleEventWaves = this.level.waves
+        .map((wave, index) => ({ wave: index + 1, boss: !!wave.bossWave }))
+        .filter((entry) => entry.wave > 1 && !entry.boss)
+        .map((entry) => entry.wave);
+      if (eligibleEventWaves.length < 2) {
+        eligibleEventWaves = this.level.waves.map((_wave, index) => index + 1).filter((wave) => wave > 1);
+      }
+    }
+    this.battlefieldEvents = new BattlefieldEventSystem(eligibleEventWaves, this.eventRandom);
+    this.eventOverlay = undefined;
+    this.supplyDrop = undefined;
+    this.eventEnemySpeedMultiplier = 1;
+    this.eventFireRateMultiplier = 1;
+    this.eventEliteQuota = 0;
+    this.eventEliteSpawned = 0;
+    this.eventEliteKills = 0;
+    this.waveStartDelay = 0;
+    this.eventGameplayStarted = false;
+    this.battlefieldEventStatus = '';
+    this.battlefieldEventProgress = 0;
+    this.battlefieldEventColor = 0xffffff;
+    this.dailyChallengeStatus = this.dailyChallenge
+      ? `每日 ${this.dailyChallenge.displayDate} · ${this.dailyChallenge.modifier.name} · #${this.dailyChallenge.code}`
+      : '';
+    this.dailyChallengeColor = this.dailyChallenge?.modifier.color ?? 0xffffff;
+    this.endlessStatus = this.endlessRun ? `无尽 #${this.endlessRun.code} · 0 分 · 变异 0` : '';
+    this.endlessColor = 0xffa726;
+    this.runOverdriveUses = 0;
+    this.runSynergiesActivated = 0;
+    this.runBossKills = 0;
+    this.runWavesCleared = 0;
   }
 
   create(): void {
-    this.levelName = this.level.name;
-    this.wallMaxHp = MetaUpgrades.wallMaxHp();
+    this.levelName = this.isEndlessMode ? '末日无尽' : this.level.name;
+    this.wallMaxHp = Math.max(1, Math.round(MetaUpgrades.wallMaxHp() * this.challengeContractDef.wallHpMultiplier));
     this.wallHp = this.wallMaxHp;
     this.wallShield = 0;
 
     this.createBackground();
 
     // 技能系统
-    this.skills = new SkillSystem();
-    this.overdriveCharge = MetaUpgrades.initialOverdrive();
+    this.skills = new SkillSystem(this.skillRandom);
+    this.overdriveCharge = Math.min(
+      100,
+      MetaUpgrades.initialOverdrive()
+        + (this.dailyChallenge?.modifier.initialOverdrive ?? 0)
+        + (this.endlessRun ? 20 : 0),
+    );
     this.overdriveReady = this.overdriveCharge >= 100;
     this.skills.onRepair = (ratio) => {
       this.wallHp = Math.min(this.wallMaxHp, this.wallHp + Math.round(this.wallMaxHp * ratio));
       AudioSystem.play('heal');
     };
     this.skills.onSynergyActivated = (syn) => {
+      this.runSynergiesActivated++;
       this.showSynergyNotification(syn);
       AudioSystem.play('synergy');
     };
@@ -179,13 +392,13 @@ export class GameScene extends Phaser.Scene {
       }
     };
 
-    this.waveManager = new WaveManager(this.level);
+    this.waveManager = new WaveManager(this.level, 1, this.isEndlessMode, this.waveRandom);
     this.waveManager.onSpawn = (type) => this.spawnZombie(type);
     this.waveManager.onHordeStart = () => {
       this.isHordeActive = true;
       if (!this.hordeBannerShown) {
         this.hordeBannerShown = true;
-        this.showHordeIntro();
+        if (!this.waveManager.isBossWave) this.showHordeIntro();
       }
       AudioSystem.startBGM('horde');
       AudioSystem.play('horde', { volume: 0.9 });
@@ -203,6 +416,7 @@ export class GameScene extends Phaser.Scene {
     this.laserGraphics = this.add.graphics().setDepth(12);
     this.lightningGraphics = this.add.graphics().setDepth(14);
     this.supportGraphics = this.add.graphics().setDepth(14);
+    this.companionGraphics = this.add.graphics().setDepth(15);
     this.conductorGraphics = this.add.graphics().setDepth(4);
     this.bloodEmitter = this.add.particles(0, 0, 'blood', {
       speed: { min: 80, max: 280 }, lifespan: 450,
@@ -211,17 +425,29 @@ export class GameScene extends Phaser.Scene {
     this.explosionEmitter = this.add.particles(0, 0, 'explosion_particle', {
       speed: { min: 100, max: 320 }, lifespan: 450,
       scale: { start: 1.4, end: 0 }, quantity: 20, emitting: false,
+      rotate: { min: 0, max: 360 }, blendMode: Phaser.BlendModes.ADD,
     }).setDepth(13);
+    this.sparkEmitter = this.add.particles(0, 0, 'impact_spark', {
+      speed: { min: 180, max: 480 }, lifespan: { min: 170, max: 330 },
+      scale: { start: 0.75, end: 0.08 }, quantity: 12, emitting: false,
+      rotate: { min: 0, max: 360 }, blendMode: Phaser.BlendModes.ADD,
+    }).setDepth(14);
+    this.smokeEmitter = this.add.particles(0, 0, 'smoke_puff', {
+      speed: { min: 18, max: 72 }, lifespan: { min: 500, max: 900 },
+      scale: { start: 0.35, end: 1.35 }, alpha: { start: 0.32, end: 0 },
+      quantity: 5, emitting: false,
+    }).setDepth(12);
     // 氛围粒子：飘落的灰烬
     this.ambientEmbers = [];
     for (let i = 0; i < 30; i++) {
       const e = this.add.image(
         Phaser.Math.Between(0, GAME_WIDTH),
         Phaser.Math.Between(0, WALL_Y),
-        'pixel'
-      ).setDepth(-4).setAlpha(Phaser.Math.FloatBetween(0.05, 0.25))
-        .setScale(Phaser.Math.FloatBetween(0.5, 1.8))
-        .setTint(this.level.bossLevel ? 0xff6d00 : 0xb0bec5);
+        'ambient_mote'
+      ).setDepth(-4).setAlpha(Phaser.Math.FloatBetween(0.08, 0.3))
+        .setScale(Phaser.Math.FloatBetween(0.12, 0.5))
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setTint(this.level.bossLevel ? 0xff6d00 : 0x9fdbe8);
       this.ambientEmbers.push(e);
     }
 
@@ -231,7 +457,9 @@ export class GameScene extends Phaser.Scene {
     // 炮台
     this.cannon = new Cannon(this, this.skills);
     this.cannon.onFire = (x, y, angle) => this.fireBullet(x, y, angle);
+    this.cannon.onVolley = (x, y, angle) => this.onEquipmentVolley(x, y, angle);
     this.createSupportEmplacement();
+    this.createCompanion();
 
     // 子弹 vs 僵尸
     this.physics.add.overlap(this.bullets, this.zombies, (bObj, zObj) => {
@@ -244,7 +472,9 @@ export class GameScene extends Phaser.Scene {
       const z = zObj as Zombie;
       if (!m.active || !z.active || z.hp <= 0 || z.dying) return;
       const died = z.takeDamage(m.damage);
-      this.showDamageText(z.x, z.y - 30, Math.round(m.damage), false);
+      const source = (m.getData('damageSource') as DamageSourceKey | undefined) ?? 'missile';
+      this.recordDamage(source, z);
+      this.showDamageText(z.x, z.y - 30, Math.round(z.lastDamageTaken), false);
       this.showShockwave(z.x, z.y);
       AudioSystem.play('explosion', { volume: 0.6 });
       m.recycle();
@@ -261,8 +491,69 @@ export class GameScene extends Phaser.Scene {
     // 启动战斗 BGM
     AudioSystem.startBGM('normal');
 
+    if (this.dailyChallenge) this.showDailyChallengeIntro();
+    else if (this.endlessRun) this.showEndlessIntro();
     // 战前免费选技能：选满 PRE_GAME_FREE_SKILLS 项后，提升怪物数量并开始第一波
-    this.time.delayedCall(600, () => this.showPreGameSkillSelection());
+    this.time.delayedCall(this.dailyChallenge || this.endlessRun ? 1650 : 600, () => this.showPreGameSkillSelection());
+  }
+
+  private showEndlessIntro(): void {
+    const run = this.endlessRun;
+    if (!run) return;
+    const band = this.add.rectangle(GAME_WIDTH / 2, 250, GAME_WIDTH, 220, 0x071015, 0.94)
+      .setDepth(24).setAlpha(0);
+    const accent = this.add.rectangle(GAME_WIDTH / 2, 142, GAME_WIDTH, 5, 0xff6d00, 1)
+      .setDepth(25).setAlpha(0);
+    const title = this.add.text(GAME_WIDTH / 2, 184, '末 日 无 尽', {
+      fontFamily: FONT, fontSize: '42px', fontStyle: 'bold', color: '#ffb74d',
+      stroke: '#071015', strokeThickness: 7,
+    }).setOrigin(0.5).setDepth(25).setAlpha(0);
+    const code = this.add.text(GAME_WIDTH / 2, 232, `本局编号 · #${run.code}`, {
+      fontFamily: FONT, fontSize: '23px', fontStyle: 'bold', color: '#ffffff',
+    }).setOrigin(0.5).setDepth(25).setAlpha(0);
+    const danger = this.add.text(GAME_WIDTH / 2, 276, '威胁 · 5 波变异 · 10 波首领尸潮', {
+      fontFamily: FONT, fontSize: '19px', fontStyle: 'bold', color: '#ff8a80',
+    }).setOrigin(0.5).setDepth(25).setAlpha(0);
+    const reward = this.add.text(GAME_WIDTH / 2, 314, '突破 · 修复防线 · 补充过载 · 稀有军火', {
+      fontFamily: FONT, fontSize: '19px', fontStyle: 'bold', color: '#69f0ae',
+    }).setOrigin(0.5).setDepth(25).setAlpha(0);
+    const elements: Phaser.GameObjects.GameObject[] = [band, accent, title, code, danger, reward];
+    this.tweens.add({
+      targets: elements, alpha: 1, duration: 180, yoyo: true, hold: 1040,
+      onComplete: () => elements.forEach((element) => element.destroy()),
+    });
+    AudioSystem.play('boss', { volume: 0.7 });
+  }
+
+  private showDailyChallengeIntro(): void {
+    const challenge = this.dailyChallenge;
+    if (!challenge) return;
+    const band = this.add.rectangle(GAME_WIDTH / 2, 250, GAME_WIDTH, 220, 0x071015, 0.94)
+      .setDepth(24).setAlpha(0);
+    const accent = this.add.rectangle(GAME_WIDTH / 2, 142, GAME_WIDTH, 5, challenge.modifier.color, 1)
+      .setDepth(25).setAlpha(0);
+    const title = this.add.text(GAME_WIDTH / 2, 184, `${challenge.displayDate} · 每日挑战`, {
+      fontFamily: FONT, fontSize: '38px', fontStyle: 'bold', color: challenge.modifier.colorHex,
+      stroke: '#071015', strokeThickness: 7,
+    }).setOrigin(0.5).setDepth(25).setAlpha(0);
+    const modifier = this.add.text(GAME_WIDTH / 2, 232, challenge.modifier.name, {
+      fontFamily: FONT, fontSize: '28px', fontStyle: 'bold', color: '#ffffff',
+    }).setOrigin(0.5).setDepth(25).setAlpha(0);
+    const danger = this.add.text(GAME_WIDTH / 2, 276, `危险 · ${challenge.modifier.danger}`, {
+      fontFamily: FONT, fontSize: '18px', fontStyle: 'bold', color: '#ff8a80',
+    }).setOrigin(0.5).setDepth(25).setAlpha(0);
+    const reward = this.add.text(
+      GAME_WIDTH / 2,
+      314,
+      `增援 · ${challenge.modifier.boon}  ·  首胜 ${challenge.firstClearReward} 金`,
+      { fontFamily: FONT, fontSize: '18px', fontStyle: 'bold', color: '#69f0ae' },
+    ).setOrigin(0.5).setDepth(25).setAlpha(0);
+    const elements: Phaser.GameObjects.GameObject[] = [band, accent, title, modifier, danger, reward];
+    this.tweens.add({
+      targets: elements, alpha: 1, duration: 180, yoyo: true, hold: 1040,
+      onComplete: () => elements.forEach((element) => element.destroy()),
+    });
+    AudioSystem.play('wave', { volume: 0.72 });
   }
 
   private createBackground(): void {
@@ -276,8 +567,30 @@ export class GameScene extends Phaser.Scene {
     const bg = this.add.graphics().setDepth(-10);
     bg.fillGradientStyle(pal.top, pal.top, pal.bottom, pal.bottom, 1);
     bg.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    // 天际辉光和远处冷月，建立最远景层。
+    const moonX = GAME_WIDTH * 0.78;
+    const moonY = 144;
+    bg.fillStyle(pal.road, 0.018).fillCircle(moonX, moonY, 122);
+    bg.fillStyle(pal.road, 0.035).fillCircle(moonX, moonY, 82);
+    bg.fillStyle(0xd9f2f2, 0.07).fillCircle(moonX, moonY, 48);
+    bg.fillStyle(0x000000, 0.16).fillCircle(moonX + 14, moonY - 8, 42);
+    bg.fillGradientStyle(pal.road, pal.road, pal.top, pal.top, 0.1);
+    bg.fillRect(0, 178, GAME_WIDTH, 108);
+
+    // 透视战斗通道：收束的路肩和导向线把视线拉向出生点。
+    bg.fillStyle(pal.road, 0.045).fillPoints([
+      new Phaser.Math.Vector2(GAME_WIDTH * 0.39, 86),
+      new Phaser.Math.Vector2(GAME_WIDTH * 0.61, 86),
+      new Phaser.Math.Vector2(GAME_WIDTH * 0.91, WALL_Y),
+      new Phaser.Math.Vector2(GAME_WIDTH * 0.09, WALL_Y),
+    ], true);
+    bg.lineStyle(4, pal.road, 0.17);
+    bg.lineBetween(GAME_WIDTH * 0.39, 90, GAME_WIDTH * 0.11, WALL_Y);
+    bg.lineBetween(GAME_WIDTH * 0.61, 90, GAME_WIDTH * 0.89, WALL_Y);
+    bg.lineStyle(2, 0xffffff, 0.035);
+    bg.lineBetween(GAME_WIDTH * 0.45, 90, GAME_WIDTH * 0.28, WALL_Y);
+    bg.lineBetween(GAME_WIDTH * 0.55, 90, GAME_WIDTH * 0.72, WALL_Y);
     // 纵深路面：中心车道、边缘碎石和远处雾带
-    bg.fillStyle(pal.road, 0.045).fillRect(GAME_WIDTH * 0.25, 0, GAME_WIDTH * 0.5, WALL_Y);
     bg.fillStyle(pal.road, 0.025);
     for (let i = 0; i < 160; i++) {
       bg.fillCircle(Phaser.Math.Between(0, GAME_WIDTH), Phaser.Math.Between(0, WALL_Y), Phaser.Math.Between(2, 7));
@@ -287,6 +600,12 @@ export class GameScene extends Phaser.Scene {
     bg.fillStyle(pal.road, 0.12);
     for (let y = 140; y < WALL_Y - 80; y += 170) {
       bg.fillRoundedRect(GAME_WIDTH / 2 - 6, y, 12, 72, 6);
+    }
+    for (let y = 230; y < WALL_Y - 90; y += 145) {
+      const spread = Phaser.Math.Linear(70, 300, y / WALL_Y);
+      bg.fillStyle(pal.road, 0.28)
+        .fillRoundedRect(GAME_WIDTH / 2 - spread, y, 13, 6, 3)
+        .fillRoundedRect(GAME_WIDTH / 2 + spread - 13, y, 13, 6, 3);
     }
     // 远景剪影（增加层次）
     bg.fillStyle(0x000000, 0.18);
@@ -317,6 +636,12 @@ export class GameScene extends Phaser.Scene {
       bg.fillStyle(0xffd54a, 0.8).fillCircle(102, WALL_Y - 207, 8);
       bg.fillStyle(0x80d8ff, 0.8).fillCircle(GAME_WIDTH - 112, WALL_Y - 167, 8);
     }
+    // 基地常亮探照灯把墙前区域从背景中切出来。
+    bg.fillStyle(0xffe082, 0.035).fillTriangle(70, WALL_Y, 245, WALL_Y - 370, 330, WALL_Y);
+    bg.fillStyle(0x80deea, 0.028).fillTriangle(GAME_WIDTH - 70, WALL_Y, GAME_WIDTH - 245, WALL_Y - 340, GAME_WIDTH - 350, WALL_Y);
+    bg.fillStyle(0xffca28, 0.5)
+      .fillRoundedRect(16, WALL_Y - 18, 26, 7, 3)
+      .fillRoundedRect(GAME_WIDTH - 42, WALL_Y - 18, 26, 7, 3);
     // 基地墙
     this.add.tileSprite(GAME_WIDTH / 2, WALL_Y + 24, GAME_WIDTH, 48, 'wall_tile').setDepth(9);
     // 墙后地面
@@ -425,6 +750,7 @@ export class GameScene extends Phaser.Scene {
       const target = [...alive].sort((a, b) => b.y - a.y)[0];
       this.supportGraphics.lineStyle(4, 0xffd54a, 0.9).lineBetween(112, WALL_Y + 50, target.x, target.y);
       const died = target.takeDamage(this.skills.damage * 0.55);
+      this.recordDamage('support', target);
       if (died) this.killZombie(target);
       this.time.delayedCall(70, () => this.supportGraphics.clear());
       AudioSystem.play('shoot', { volume: 0.35 });
@@ -437,6 +763,7 @@ export class GameScene extends Phaser.Scene {
       for (const target of targets) {
         this.supportGraphics.lineStyle(5, 0x4fc3f7, 0.9).lineBetween(fromX, fromY, target.x, target.y);
         const died = target.takeDamage(this.skills.damage * 0.48);
+        this.recordDamage('support', target);
         if (died) this.killZombie(target);
         fromX = target.x; fromY = target.y;
       }
@@ -456,10 +783,186 @@ export class GameScene extends Phaser.Scene {
       const dist = Phaser.Math.Distance.Between(x, y, zombie.x, zombie.y);
       if (dist > 120) continue;
       const died = zombie.takeDamage(damage * (1 - dist / 180));
+      this.recordDamage('support', zombie);
       if (died) this.killZombie(zombie);
     }
     this.cameras.main.shake(90, 0.004);
     AudioSystem.play('explosion', { volume: 0.45 });
+  }
+
+  private createCompanion(): void {
+    const protocol = getCompanionProtocol(this.companionProtocol);
+    if (!protocol) return;
+    const homeX = GAME_WIDTH - 108;
+    const homeY = WALL_Y + 83;
+    this.companionDrone = this.add.image(homeX, homeY, 'icon_drone_swarm')
+      .setDepth(11).setScale(0.74).setTint(protocol.color);
+    this.add.text(homeX, homeY + 43, 'R-7', {
+      fontFamily: FONT, fontSize: '14px', fontStyle: 'bold', color: '#b0bec5',
+      stroke: '#071015', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(11);
+    this.tweens.add({
+      targets: this.companionDrone,
+      y: homeY - 9,
+      angle: 3,
+      duration: 780,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.InOut',
+    });
+  }
+
+  private refreshCompanionStatus(): void {
+    const protocol = getCompanionProtocol(this.companionProtocol);
+    if (!protocol) {
+      this.companionStatus = '';
+      return;
+    }
+    this.companionColor = protocol.color;
+    this.companionStatus = this.companionCharge >= protocol.threshold
+      ? `R-7 · ${protocol.shortName}就绪`
+      : `R-7 · ${protocol.shortName} ${this.companionCharge}/${protocol.threshold}`;
+  }
+
+  private chargeCompanion(source: 'hit' | 'kill'): void {
+    const protocol = getCompanionProtocol(this.companionProtocol);
+    if (!protocol || protocol.chargeSource !== source) return;
+    this.companionCharge = Math.min(protocol.threshold, this.companionCharge + 1);
+    if (this.companionCharge < protocol.threshold) {
+      this.refreshCompanionStatus();
+      return;
+    }
+
+    const triggered = this.companionProtocol === 'companion_hunter'
+      ? this.triggerCompanionHunter()
+      : this.companionProtocol === 'companion_vortex'
+        ? this.triggerCompanionVortex()
+        : this.triggerCompanionMedic();
+    if (triggered) this.companionCharge = 0;
+    this.refreshCompanionStatus();
+  }
+
+  private triggerCompanionHunter(): boolean {
+    const targets = this.aliveZombies();
+    if (targets.length === 0) return false;
+    const target = [...targets].sort((a, b) => {
+      const score = (zombie: Zombie): number => zombie.y
+        + (1 - zombie.hp / Math.max(1, zombie.maxHp)) * 230
+        + (zombie.zType === 'boss' ? 120 : 0)
+        + (zombie.eliteAffix ? 65 : 0);
+      return score(b) - score(a);
+    })[0];
+    const hpRatio = target.hp / Math.max(1, target.maxHp);
+    const damage = hpRatio <= 0.2
+      ? Math.max(this.skills.damage * 1.4, target.maxHp * 2 + target.shield)
+      : this.skills.damage * 1.4;
+    this.companionGraphics.clear();
+    this.companionGraphics.lineStyle(11, 0xffd54a, 0.22)
+      .lineBetween(this.companionDrone?.x ?? GAME_WIDTH - 108, this.companionDrone?.y ?? WALL_Y + 83, target.x, target.y);
+    this.companionGraphics.lineStyle(3, 0xffffff, 0.95)
+      .lineBetween(this.companionDrone?.x ?? GAME_WIDTH - 108, this.companionDrone?.y ?? WALL_Y + 83, target.x, target.y);
+    this.time.delayedCall(100, () => this.companionGraphics.clear());
+    const died = target.takeDamage(damage);
+    this.recordDamage('companion', target);
+    this.showCompanionFeedback(target.x, target.y - 38, `追猎 ${Math.round(target.lastDamageTaken)}`, 0xffd54a);
+    this.companionTelemetry.hunterShots++;
+    this.hitStop(28);
+    if (died) this.killZombie(target);
+    AudioSystem.play('crit', { volume: 0.55 });
+    return true;
+  }
+
+  private triggerCompanionVortex(): boolean {
+    const alive = this.aliveZombies();
+    if (alive.length === 0) return false;
+    let anchor = alive[0];
+    let bestScore = -Infinity;
+    for (const candidate of alive) {
+      const nearby = alive.reduce((count, target) => count
+        + (Phaser.Math.Distance.Between(candidate.x, candidate.y, target.x, target.y) <= 190 ? 1 : 0), 0);
+      const score = nearby * 1000 + candidate.y;
+      if (score > bestScore) {
+        bestScore = score;
+        anchor = candidate;
+      }
+    }
+    const targets = alive
+      .filter((target) => Phaser.Math.Distance.Between(anchor.x, anchor.y, target.x, target.y) <= 190)
+      .sort((a, b) => b.y - a.y)
+      .slice(0, 9);
+    const field = this.add.image(anchor.x, anchor.y, 'gravity_field')
+      .setDepth(12).setTint(0xb388ff).setScale(0.28).setAlpha(0.9);
+    this.tweens.add({
+      targets: field, scale: 1.35, alpha: 0, duration: 620,
+      onComplete: () => field.destroy(),
+    });
+    this.companionGraphics.clear();
+    this.companionGraphics.lineStyle(3, 0xb388ff, 0.85)
+      .lineBetween(this.companionDrone?.x ?? GAME_WIDTH - 108, this.companionDrone?.y ?? WALL_Y + 83, anchor.x, anchor.y);
+    this.time.delayedCall(150, () => this.companionGraphics.clear());
+    targets.forEach((target) => {
+      target.x = Phaser.Math.Clamp(anchor.x + (target.x - anchor.x) * 0.48, 40, GAME_WIDTH - 40);
+      const died = target.takeDamage(this.skills.damage * 0.22);
+      this.recordDamage('companion', target);
+      if (died) this.killZombie(target);
+      else {
+        target.applyKnockback(42);
+        target.applySlow(0.42, 2.5);
+      }
+    });
+    this.companionTelemetry.vortexBursts++;
+    this.companionTelemetry.controlledTargets += targets.length;
+    this.showCompanionFeedback(anchor.x, anchor.y - 58, `磁暴聚束 ×${targets.length}`, 0xb388ff);
+    this.cameras.main.shake(120, 0.005);
+    AudioSystem.play('lightning', { volume: 0.52 });
+    return true;
+  }
+
+  private triggerCompanionMedic(): boolean {
+    const shieldCap = this.wallMaxHp * 0.45;
+    if (this.wallHp >= this.wallMaxHp && this.wallShield >= shieldCap) return false;
+    const repaired = Math.min(
+      Math.max(0, this.wallMaxHp - this.wallHp),
+      Math.max(1, Math.round(this.wallMaxHp * 0.04)),
+    );
+    const shieldBefore = this.wallShield;
+    this.wallHp += repaired;
+    this.wallShield = Math.min(shieldCap, this.wallShield + this.wallMaxHp * 0.03);
+    const shieldGained = Math.round(this.wallShield - shieldBefore);
+    const drone = this.add.image(this.companionDrone?.x ?? GAME_WIDTH - 108, this.companionDrone?.y ?? WALL_Y + 83, 'icon_drone_swarm')
+      .setDepth(18).setScale(0.72).setTint(0x69f0ae);
+    this.tweens.add({
+      targets: drone,
+      x: GAME_WIDTH / 2,
+      y: WALL_Y + 20,
+      scale: 1.05,
+      duration: 260,
+      yoyo: true,
+      hold: 120,
+      onComplete: () => drone.destroy(),
+    });
+    this.showShieldActivateEffect();
+    this.showCompanionFeedback(
+      GAME_WIDTH / 2,
+      WALL_Y - 40,
+      `急救 +${repaired} · 护盾 +${shieldGained}`,
+      0x69f0ae,
+    );
+    this.companionTelemetry.medicRepairs++;
+    AudioSystem.play('heal', { volume: 0.58 });
+    return true;
+  }
+
+  private showCompanionFeedback(x: number, y: number, message: string, color: number): void {
+    const label = this.add.text(x, y, message, {
+      fontFamily: FONT, fontSize: '21px', fontStyle: 'bold',
+      color: `#${color.toString(16).padStart(6, '0')}`,
+      stroke: '#071015', strokeThickness: 4,
+    }).setOrigin(0.5).setDepth(20);
+    this.tweens.add({
+      targets: label, y: y - 34, alpha: 0, duration: 760,
+      onComplete: () => label.destroy(),
+    });
   }
 
   private updateConductorAuras(alive: Zombie[]): void {
@@ -527,11 +1030,12 @@ export class GameScene extends Phaser.Scene {
         zombie.y += ((well.y - zombie.y) / dist) * pull * 0.6;
         if (damageTick) {
           const died = zombie.takeDamage(this.skills.gravityWellDamage);
+          this.recordDamage('gravity', zombie);
           if (died) this.killZombie(zombie);
         }
       }
       if (well.timer <= 0) {
-        if (this.skills.hasSynergy('singularityBomb')) this.doExplosion(well.x, well.y);
+        if (this.skills.hasSynergy('singularityBomb')) this.doExplosion(well.x, well.y, 'gravity');
         well.sprite.destroy();
         this.gravityWells.splice(i, 1);
       }
@@ -573,6 +1077,7 @@ export class GameScene extends Phaser.Scene {
       if (dist > radius) continue;
       if (zombie.burrowed) zombie.forceSurface();
       const died = zombie.takeDamage(this.skills.mineDamage * Math.max(0.35, 1 - dist / 180));
+      this.recordDamage('mine', zombie);
       if (!died && this.skills.hasSynergy('cryoMine')) zombie.applySlow(0.48, 3.2);
       if (died) this.killZombie(zombie);
     }
@@ -601,17 +1106,26 @@ export class GameScene extends Phaser.Scene {
 
   private beginWave(): void {
     if (this.finished) return;
+    if (this.endlessRun) {
+      this.waveManager.setMonsterMultiplier(
+        PRE_GAME_MONSTER_MULTIPLIER
+        * this.endlessRun.countMultiplier
+        * this.challengeContractDef.enemyCountMultiplier,
+      );
+      if ((this.waveManager.currentWave + 1) % 5 === 0) this.hordeBannerShown = false;
+    }
     const started = this.waveManager.startNextWave();
     if (!started) return;
-    this.waveLabel = `${this.waveManager.currentWave}/${this.waveManager.totalWaves}`;
+    const waveTotalLabel = this.isEndlessMode ? '∞' : `${this.waveManager.totalWaves}`;
+    this.waveLabel = `${this.waveManager.currentWave}/${waveTotalLabel}`;
+    this.isHordeActive = this.waveManager.isHordeWave;
 
     // 检测当前波是否为 bossWave
-    const curWaveCfg = this.level.waves[this.waveManager.currentWave - 1];
-    const isBossWave = !!(curWaveCfg && curWaveCfg.bossWave);
+    const isBossWave = this.waveManager.isBossWave;
     this.isBossWave = isBossWave;
 
     if (isBossWave) {
-      this.showBossIntro();
+      this.showBossIntro(this.isHordeActive);
       AudioSystem.startBGM(this.isHordeActive ? 'horde' : 'boss');
       AudioSystem.play('boss');
     } else {
@@ -624,29 +1138,29 @@ export class GameScene extends Phaser.Scene {
       AudioSystem.play('wave');
     }
 
-    const bannerColor = isBossWave ? '#ff1744' : '#ffd54a';
-    const bannerText = isBossWave
-      ? `⚠ 首领波 ${this.waveManager.currentWave}/${this.waveManager.totalWaves}`
-      : this.isHordeActive
-        ? `尸潮来袭 · ${this.waveManager.currentWave}/${this.waveManager.totalWaves}`
+    if (!isBossWave) {
+      const bannerText = this.isHordeActive
+        ? `尸潮来袭 · ${this.waveManager.currentWave}/${waveTotalLabel}`
         : `第 ${this.waveManager.currentWave} 波`;
-    const banner = this.add
-      .text(GAME_WIDTH / 2, GAME_HEIGHT * 0.35, bannerText, {
-        fontFamily: FONT, fontSize: isBossWave ? '56px' : '64px', fontStyle: 'bold', color: bannerColor,
-        stroke: '#1a2530', strokeThickness: 8,
-      })
-      .setOrigin(0.5).setDepth(20).setAlpha(0);
-    this.tweens.add({
-      targets: banner, alpha: 1, duration: 250, yoyo: true, hold: 700,
-      onComplete: () => banner.destroy(),
-    });
+      const banner = this.add
+        .text(GAME_WIDTH / 2, GAME_HEIGHT * 0.35, bannerText, {
+          fontFamily: FONT, fontSize: '64px', fontStyle: 'bold', color: '#ffd54a',
+          stroke: '#1a2530', strokeThickness: 8,
+        })
+        .setOrigin(0.5).setDepth(20).setAlpha(0);
+      this.tweens.add({
+        targets: banner, alpha: 1, duration: 250, yoyo: true, hold: 700,
+        onComplete: () => banner.destroy(),
+      });
+    }
     // Boss 波全屏震动
     if (isBossWave) {
       this.cameras.main.shake(400, 0.012);
     }
+    this.activateScheduledBattlefieldEvent();
   }
 
-  private showBossIntro(): void {
+  private showBossIntro(hordeWave = false): void {
     // 全屏红色闪烁 + 缩放警告
     const flash = this.add.rectangle(
       GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0xff1744, 0.4
@@ -655,11 +1169,15 @@ export class GameScene extends Phaser.Scene {
       targets: flash, alpha: 0, duration: 500, ease: 'Cubic.Out',
       onComplete: () => flash.destroy(),
     });
-    // "危险" 大字
-    const warn = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT * 0.25, '⚠ 危险 ⚠', {
-      fontFamily: FONT, fontSize: '80px', fontStyle: 'bold', color: '#ff1744',
+    const warn = this.add.text(
+      GAME_WIDTH / 2,
+      GAME_HEIGHT * 0.27,
+      hordeWave ? '⚠ 首领尸潮 ⚠' : '⚠ 首领来袭 ⚠',
+      {
+      fontFamily: FONT, fontSize: hordeWave ? '64px' : '72px', fontStyle: 'bold', color: '#ff1744',
       stroke: '#1a2530', strokeThickness: 12,
-    }).setOrigin(0.5).setDepth(23).setScale(0.2);
+      },
+    ).setOrigin(0.5).setDepth(23).setScale(0.2);
     this.tweens.add({
       targets: warn, scale: 1.1, duration: 350, ease: 'Back.Out',
       yoyo: true, hold: 800,
@@ -687,18 +1205,218 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.shake(500, 0.012);
   }
 
+  // ─── 随机战场事件 ───
+
+  private activateScheduledBattlefieldEvent(): void {
+    const active = this.battlefieldEvents.startWave(this.waveManager.currentWave);
+    if (!active) return;
+    this.eventEliteQuota = active.def.key === 'eliteHunt' ? 4 : 0;
+    this.eventEliteSpawned = 0;
+    this.eventEliteKills = 0;
+    this.eventEnemySpeedMultiplier = active.def.key === 'infectionStorm' ? 1.18 : 1;
+    this.eventFireRateMultiplier = active.def.key === 'blackout' ? 0.65 : 1;
+    this.waveStartDelay = 2.55;
+    this.eventGameplayStarted = false;
+    this.battlefieldEventColor = active.def.color;
+    this.battlefieldEventProgress = 1;
+    this.updateBattlefieldEventStatus(active);
+    this.time.delayedCall(1000, () => {
+      if (this.finished || this.battlefieldEvents.active !== active) return;
+      this.showBattlefieldEventIntro(active);
+    });
+  }
+
+  private showBattlefieldEventIntro(active: ActiveBattlefieldEvent): void {
+    const band = this.add.rectangle(GAME_WIDTH / 2, 240, GAME_WIDTH, 178, 0x081015, 0.9)
+      .setDepth(24).setAlpha(0);
+    const accent = this.add.rectangle(GAME_WIDTH / 2, 154, GAME_WIDTH, 5, active.def.color, 1)
+      .setDepth(25).setAlpha(0);
+    const title = this.add.text(GAME_WIDTH / 2, 192, active.def.name, {
+      fontFamily: FONT, fontSize: '40px', fontStyle: 'bold', color: active.def.colorHex,
+      stroke: '#071015', strokeThickness: 7,
+    }).setOrigin(0.5).setDepth(25).setAlpha(0);
+    const danger = this.add.text(GAME_WIDTH / 2, 244, `危险 · ${active.def.danger}`, {
+      fontFamily: FONT, fontSize: '20px', fontStyle: 'bold', color: '#ff8a80',
+    }).setOrigin(0.5).setDepth(25).setAlpha(0);
+    const reward = this.add.text(GAME_WIDTH / 2, 282, `回报 · ${active.def.reward}`, {
+      fontFamily: FONT, fontSize: '19px', fontStyle: 'bold', color: '#69f0ae',
+    }).setOrigin(0.5).setDepth(25).setAlpha(0);
+    const elements: Phaser.GameObjects.GameObject[] = [band, accent, title, danger, reward];
+    this.tweens.add({
+      targets: elements, alpha: 1, duration: 180, yoyo: true, hold: 900,
+      onComplete: () => elements.forEach((element) => element.destroy()),
+    });
+    AudioSystem.play('wave', { volume: 0.75 });
+  }
+
+  private beginBattlefieldEventGameplay(): void {
+    const active = this.battlefieldEvents.active;
+    if (!active || this.eventGameplayStarted) return;
+    this.eventGameplayStarted = true;
+    if (active.def.key === 'supplyDrop') {
+      this.createSupplyDrop();
+      return;
+    }
+    const color = active.def.key === 'infectionStorm' ? 0x1b5e20
+      : active.def.key === 'blackout' ? 0x000000 : 0x8b1a1a;
+    const alpha = active.def.key === 'blackout' ? 0.36 : active.def.key === 'infectionStorm' ? 0.12 : 0.07;
+    this.eventOverlay = this.add.rectangle(
+      GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, color, alpha,
+    ).setDepth(active.def.key === 'blackout' ? 4 : 2);
+  }
+
+  private createSupplyDrop(): void {
+    const x = randomBetween(this.spawnRandom, 140, GAME_WIDTH - 140);
+    const y = randomBetween(this.spawnRandom, 360, 660);
+    const glow = this.add.graphics();
+    glow.fillStyle(0xffca28, 0.16).fillCircle(0, 0, 76);
+    glow.lineStyle(3, 0xffca28, 0.7).strokeCircle(0, 0, 70);
+    const crate = this.add.graphics();
+    crate.fillStyle(0x5d4037, 1).fillRoundedRect(-56, -38, 112, 76, 8);
+    crate.fillStyle(0xffca28, 0.9).fillRect(-56, -8, 112, 16).fillRect(-9, -38, 18, 76);
+    crate.lineStyle(3, 0xffe082, 0.9).strokeRoundedRect(-56, -38, 112, 76, 8);
+    const cross = this.add.text(0, 0, '+', {
+      fontFamily: FONT, fontSize: '34px', fontStyle: 'bold', color: '#ffffff',
+      stroke: '#4e342e', strokeThickness: 5,
+    }).setOrigin(0.5);
+    const label = this.add.text(0, 58, '补给', {
+      fontFamily: FONT, fontSize: '20px', fontStyle: 'bold', color: '#ffd54f',
+      stroke: '#071015', strokeThickness: 4,
+    }).setOrigin(0.5);
+    const drop = this.add.container(x, y, [glow, crate, cross, label])
+      .setSize(152, 144).setDepth(18).setInteractive({ useHandCursor: true });
+    drop.on('pointerup', () => this.claimSupplyDrop());
+    this.tweens.add({ targets: drop, y: y - 16, duration: 620, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+    this.supplyDrop = drop;
+  }
+
+  private claimSupplyDrop(): void {
+    if (this.battlefieldEvents.active?.def.key !== 'supplyDrop' || !this.supplyDrop) return;
+    const coins = 40 + this.level.id * 5;
+    const repair = Math.round(this.wallMaxHp * 0.22);
+    this.runCoins += coins;
+    this.wallHp = Math.min(this.wallMaxHp, this.wallHp + repair);
+    this.grantOverdriveCharge(35);
+    this.showEventRewardFeedback(`补给回收 · +${coins} 金 · 修复 ${repair}`, 0xffd54f);
+    AudioSystem.play('upgrade', { volume: 0.85 });
+    this.completeBattlefieldEvent('claimed');
+  }
+
+  private updateBattlefieldEvent(dt: number): void {
+    const active = this.battlefieldEvents.active;
+    if (!active || !this.eventGameplayStarted) return;
+    if (this.battlefieldEvents.update(dt)) {
+      this.completeBattlefieldEvent('timeout');
+      return;
+    }
+    this.battlefieldEventProgress = active.def.duration > 0 ? active.remaining / active.def.duration : 0;
+    this.updateBattlefieldEventStatus(active);
+  }
+
+  private updateBattlefieldEventStatus(active: ActiveBattlefieldEvent): void {
+    if (active.def.key === 'eliteHunt') {
+      this.battlefieldEventStatus = `${active.def.name} ${this.eventEliteKills}/${this.eventEliteQuota} · ${Math.ceil(active.remaining)}s`;
+    } else {
+      this.battlefieldEventStatus = `${active.def.name} · ${Math.ceil(active.remaining)}s`;
+    }
+  }
+
+  private completeBattlefieldEvent(reason: 'claimed' | 'timeout' | 'waveEnd' | 'huntComplete'): void {
+    const finished = this.battlefieldEvents.finishActive();
+    if (!finished) return;
+    this.cleanupBattlefieldEventObjects();
+    if (finished.def.key === 'infectionStorm' && this.eventEnemySpeedMultiplier !== 1) {
+      for (const zombie of this.aliveZombies()) {
+        zombie.baseSpeed /= this.eventEnemySpeedMultiplier;
+        const body = zombie.body as Phaser.Physics.Arcade.Body;
+        if (body.velocity.y > 0) body.setVelocityY(body.velocity.y / this.eventEnemySpeedMultiplier);
+      }
+    }
+    this.eventEnemySpeedMultiplier = 1;
+    this.eventFireRateMultiplier = 1;
+    this.eventGameplayStarted = false;
+    this.battlefieldEventProgress = 0;
+
+    let completion = '';
+    if (finished.def.key === 'infectionStorm') {
+      this.runCoins += 20;
+      this.grantOverdriveCharge(25);
+      completion = '感染风暴结束 · 过载 +25';
+    } else if (finished.def.key === 'blackout') {
+      this.runCoins += 40;
+      this.grantOverdriveCharge(35);
+      completion = '供电恢复 · +40 金 · 过载 +35';
+    } else if (finished.def.key === 'eliteHunt' && reason === 'huntComplete') {
+      this.runCoins += 65;
+      this.grantOverdriveCharge(40);
+      completion = '精英悬赏完成 · +65 金 · 过载 +40';
+    } else if (finished.def.key === 'supplyDrop' && reason !== 'claimed') {
+      completion = '补给箱已坠毁';
+    } else if (finished.def.key === 'eliteHunt') {
+      completion = `精英猎杀结束 · ${this.eventEliteKills}/${this.eventEliteQuota}`;
+    }
+
+    this.eventEliteQuota = 0;
+    this.eventEliteSpawned = 0;
+    this.eventEliteKills = 0;
+    if (!completion) {
+      this.battlefieldEventStatus = '';
+      return;
+    }
+    this.battlefieldEventStatus = completion;
+    this.showEventRewardFeedback(completion, finished.def.color);
+    this.time.delayedCall(1600, () => {
+      if (this.battlefieldEventStatus === completion) this.battlefieldEventStatus = '';
+    });
+  }
+
+  private cleanupBattlefieldEventObjects(): void {
+    if (this.supplyDrop) {
+      this.tweens.killTweensOf(this.supplyDrop);
+      this.supplyDrop.destroy();
+      this.supplyDrop = undefined;
+    }
+    this.eventOverlay?.destroy();
+    this.eventOverlay = undefined;
+  }
+
+  private showEventRewardFeedback(message: string, color: number): void {
+    const text = this.add.text(GAME_WIDTH / 2, 840, message, {
+      fontFamily: FONT, fontSize: '25px', fontStyle: 'bold', color: `#${color.toString(16).padStart(6, '0')}`,
+      stroke: '#071015', strokeThickness: 5,
+    }).setOrigin(0.5).setDepth(24);
+    this.tweens.add({
+      targets: text, y: 790, alpha: 0, duration: 1200,
+      onComplete: () => text.destroy(),
+    });
+  }
+
   // ─── 生成僵尸 ───
 
-  spawnZombie(type: ZombieTypeKey, x?: number, y?: number): void {
+  spawnZombie(type: ZombieTypeKey, x?: number, y?: number, eliteAffix?: EliteAffix | null): void {
     const z = this.zombies.get() as Zombie | null;
     if (!z) return;
-    const sx = x ?? Phaser.Math.Between(70, GAME_WIDTH - 70);
+    const sx = x ?? randomBetween(this.spawnRandom, 70, GAME_WIDTH - 70);
     const sy = y ?? -80;
-    z.spawn(type, sx, sy, this.level.hpScale, this.level.speedScale);
+    const rolledAffix = eliteAffix === undefined ? this.rollEliteAffix(type) : eliteAffix;
+    const contractSpeed = (this.contractWave === this.waveManager.currentWave ? 1.14 : 1)
+      * this.challengeContractDef.enemySpeedMultiplier;
+    const dailySpeed = this.dailyChallenge?.modifier.enemySpeedMultiplier ?? 1;
+    const endlessWave = Math.max(1, this.waveManager.currentWave);
+    const endlessHp = this.endlessRun?.enemyHpMultiplier(endlessWave) ?? 1;
+    const endlessSpeed = this.endlessRun?.enemySpeedMultiplier(endlessWave) ?? 1;
+    z.spawn(
+      type,
+      sx,
+      sy,
+      this.level.hpScale * endlessHp,
+      this.level.speedScale * contractSpeed * this.eventEnemySpeedMultiplier * dailySpeed * endlessSpeed,
+      rolledAffix,
+    );
     z.onAttackWall = (dmg) => this.damageWall(dmg);
     z.onSummon = (bx, by, summonType) => {
       this.spawnZombie(summonType ?? 'normal',
-        Phaser.Math.Clamp(bx + Phaser.Math.Between(-80, 80), 60, GAME_WIDTH - 60), by);
+        Phaser.Math.Clamp(bx + randomBetween(this.spawnRandom, -80, 80), 60, GAME_WIDTH - 60), by, null);
       AudioSystem.play('summon', { volume: 0.5 });
     };
     z.onSpit = (sx2, sy2, angle, damage) => this.fireAcidBall(sx2, sy2, angle, damage);
@@ -714,6 +1432,7 @@ export class GameScene extends Phaser.Scene {
       this.showShockwave(burrower.x, burrower.y);
       AudioSystem.play('wall_hit', { volume: 0.35 });
     };
+    z.onBossPhase = (boss) => this.showBossPhaseChange(boss);
 
     // Boss 出生特效
     if (type === 'boss') {
@@ -726,6 +1445,53 @@ export class GameScene extends Phaser.Scene {
     if (type === 'conductor') {
       this.cameras.main.flash(90, 77, 208, 225, false);
     }
+  }
+
+  private rollEliteAffix(type: ZombieTypeKey): EliteAffix | null {
+    if (type === 'swarm' || type === 'boss') return null;
+    const affixes: EliteAffix[] = ['swift', 'armored', 'regenerating', 'splitting'];
+    const activeEvent = this.battlefieldEvents.active;
+    if (
+      activeEvent?.def.key === 'eliteHunt'
+      && this.eventGameplayStarted
+      && this.eventEliteSpawned < this.eventEliteQuota
+    ) {
+      this.eventEliteSpawned++;
+      return affixes[randomBetween(this.eliteRandom, 0, affixes.length - 1)];
+    }
+    const wave = this.waveManager?.currentWave ?? 1;
+    const baseChance = this.endlessRun
+      ? Math.min(0.24, 0.025 + wave * 0.008)
+      : this.level.id <= 2 ? 0.015 : Math.min(0.16, 0.025 + this.level.id * 0.003 + wave * 0.012);
+    const contractBonus = this.contractWave === wave ? 0.2 : 0;
+    const eventBonus = activeEvent?.def.key === 'infectionStorm' && this.eventGameplayStarted ? 0.12 : 0;
+    const dailyBonus = this.dailyChallenge?.modifier.eliteChanceBonus ?? 0;
+    const endlessBonus = this.endlessRun?.eliteChanceBonus ?? 0;
+    if (this.eliteRandom() >= baseChance + contractBonus + eventBonus + dailyBonus + endlessBonus) return null;
+    return affixes[randomBetween(this.eliteRandom, 0, affixes.length - 1)];
+  }
+
+  private showBossPhaseChange(boss: Zombie): void {
+    this.cameras.main.flash(260, 255, 45, 45, false);
+    this.cameras.main.shake(520, 0.018);
+    this.applySlowMo(0.5, 0.42);
+    const phase = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT * 0.235, '首领狂暴 · 二阶段', {
+      fontFamily: FONT, fontSize: '46px', fontStyle: 'bold', color: '#ff5252',
+      stroke: '#2b0b0b', strokeThickness: 10,
+    }).setOrigin(0.5).setDepth(24).setScale(0.4).setAlpha(0);
+    this.tweens.add({
+      targets: phase, scale: 1, alpha: 1, duration: 240, yoyo: true, hold: 850,
+      onComplete: () => phase.destroy(),
+    });
+    for (let i = 0; i < 6; i++) {
+      this.spawnZombie(
+        'fast',
+        Phaser.Math.Clamp(boss.x + randomBetween(this.spawnRandom, -170, 170), 54, GAME_WIDTH - 54),
+        boss.y + randomBetween(this.spawnRandom, 70, 150),
+        null,
+      );
+    }
+    AudioSystem.play('boss', { volume: 1 });
   }
 
   private showBossSpawnEffect(x: number, y: number): void {
@@ -744,14 +1510,108 @@ export class GameScene extends Phaser.Scene {
 
   // ─── 子弹系统 ───
 
-  private fireBullet(x: number, y: number, angle: number): void {
+  private fireBullet(x: number, y: number, angle: number, damageMultiplier = 1): void {
     const b = this.bullets.get() as Bullet | null;
     if (!b) return;
     const isCrit = Math.random() < this.skills.critChance;
     const rawDmg = this.skills.damage * (1 + this.skills.streakDamageBonus) * (isCrit ? 2 : 1);
     const comboMult = 1 + Math.min(this.hitCombo * 0.02, 1.0); // 连击倍率最高×2
-    const dmg = rawDmg * comboMult;
-    b.fire(x, y, angle, dmg, this.skills.pierce, isCrit, this.skills.ricochetCount);
+    let dmg = rawDmg * comboMult * damageMultiplier * this.challengeContractDef.cannonDamageMultiplier;
+    let pierce = this.skills.pierce;
+    const profile: BulletProfile = {};
+
+    if (this.behaviorLoadout.barrel === 'barrel_rail') {
+      dmg *= 2.15;
+      pierce += 4;
+      profile.knockback = 34;
+      profile.tint = 0xffe082;
+      profile.scale = 1.34;
+    }
+
+    this.equipmentProjectileCount++;
+    if (this.behaviorLoadout.ammo === 'ammo_cryo' && this.equipmentProjectileCount % 5 === 0) {
+      profile.cryoBurst = true;
+      profile.tint = 0x80deea;
+      profile.scale = (profile.scale ?? 1) * 1.16;
+    } else if (this.behaviorLoadout.ammo === 'ammo_shrapnel') {
+      profile.shrapnelOnKill = true;
+    } else if (this.behaviorLoadout.ammo === 'ammo_volatile' && this.equipmentProjectileCount % 6 === 0) {
+      profile.volatileCore = true;
+      profile.tint = 0xff7043;
+      profile.scale = (profile.scale ?? 1) * 1.22;
+    }
+
+    b.fire(x, y, angle, dmg, pierce, isCrit, this.skills.ricochetCount, profile);
+  }
+
+  private onEquipmentVolley(x: number, y: number, angle: number): void {
+    this.equipmentVolleyCount++;
+    this.behaviorTelemetry.volleys++;
+    if (this.behaviorLoadout.barrel === 'barrel_cycler') {
+      this.cyclerHeat = Math.min(100, this.cyclerHeat + 9);
+      if (this.cyclerHeat >= 100) {
+        this.cyclerHeat = 0;
+        this.cyclerLockTimer = 1.05;
+        this.fireCyclerVent(x, y, angle);
+      }
+    } else if (this.behaviorLoadout.barrel === 'barrel_scatter' && this.equipmentVolleyCount % 3 === 0) {
+      this.fireBullet(x, y, angle - 0.24, 0.58);
+      this.fireBullet(x, y, angle + 0.24, 0.58);
+    }
+  }
+
+  private fireCyclerVent(x: number, y: number, angle: number): void {
+    const comboMult = 1 + Math.min(this.hitCombo * 0.02, 1);
+    const damage = this.skills.damage * (1 + this.skills.streakDamageBonus) * comboMult * 0.44;
+    for (const offset of [-0.54, -0.36, -0.18, 0, 0.18, 0.36, 0.54]) {
+      const bullet = this.bullets.get() as Bullet | null;
+      if (!bullet) continue;
+      bullet.fire(x, y, angle + offset, damage, 0, false, 0, {
+        damageSource: 'equipment', tint: 0xffb74d, scale: 0.82,
+      });
+    }
+    this.cameras.main.shake(100, 0.004);
+  }
+
+  private updateBehaviorEquipment(dt: number, hasTargets: boolean): void {
+    this.wallModuleCooldown = Math.max(0, this.wallModuleCooldown - dt);
+    let barrelStatus: string;
+    if (this.behaviorLoadout.barrel === 'barrel_cycler') {
+      if (this.cyclerLockTimer > 0) {
+        this.cyclerLockTimer = Math.max(0, this.cyclerLockTimer - dt);
+      } else if (!hasTargets) {
+        this.cyclerHeat = Math.max(0, this.cyclerHeat - dt * 42);
+      }
+      const locked = this.cyclerLockTimer > 0;
+      this.cannon.setFireProfile(
+        (1.05 + this.cyclerHeat * 0.0082) * this.challengeContractDef.cannonFireRateMultiplier,
+        locked,
+      );
+      barrelStatus = locked ? `排热 ${this.cyclerLockTimer.toFixed(1)}s` : `热 ${Math.round(this.cyclerHeat)}%`;
+    } else if (this.behaviorLoadout.barrel === 'barrel_rail') {
+      this.cannon.setFireProfile(0.56 * this.challengeContractDef.cannonFireRateMultiplier, false);
+      barrelStatus = '重击穿透';
+    } else {
+      this.cannon.setFireProfile(0.88 * this.challengeContractDef.cannonFireRateMultiplier, false);
+      barrelStatus = `侧翼 ${this.equipmentVolleyCount % 3}/3`;
+    }
+
+    const ammoStatus = this.behaviorLoadout.ammo === 'ammo_cryo'
+      ? `冷凝 ${this.equipmentProjectileCount % 5}/5`
+      : this.behaviorLoadout.ammo === 'ammo_volatile'
+        ? `爆芯 ${this.equipmentProjectileCount % 6}/6`
+        : '击杀裂变';
+    const wallStatus = this.behaviorLoadout.wall === 'wall_salvage'
+      ? '精英回收'
+      : this.wallModuleCooldown > 0
+        ? `${this.behaviorLoadout.wall === 'wall_pulse' ? '电网' : '反射'} ${this.wallModuleCooldown.toFixed(1)}s`
+        : '防线就绪';
+    const barrel = getBehaviorEquipment(this.behaviorLoadout.barrel);
+    const ammo = getBehaviorEquipment(this.behaviorLoadout.ammo);
+    const wall = getBehaviorEquipment(this.behaviorLoadout.wall);
+    this.behaviorEquipmentLabel = `${barrel?.shortName ?? ''} · ${ammo?.shortName ?? ''} · ${wall?.shortName ?? ''}`;
+    this.behaviorEquipmentStatus = `${barrelStatus} · ${ammoStatus} · ${wallStatus}`;
+    this.behaviorEquipmentColor = barrel?.color ?? 0xce93d8;
   }
 
   private onBulletHit(bullet: Bullet, zombie: Zombie): void {
@@ -761,11 +1621,22 @@ export class GameScene extends Phaser.Scene {
     const executing = this.skills.executionThreshold > 0 && hpRatio <= this.skills.executionThreshold;
     const hitDamage = bullet.damage * (executing ? this.skills.executionDamageMultiplier : 1);
     const died = zombie.takeDamage(hitDamage);
-    const actualDmg = Math.round(hitDamage);
+    this.recordDamage(bullet.damageSource, zombie);
+    const actualDmg = Math.round(zombie.lastDamageTaken);
     this.showDamageText(zombie.x, zombie.y - 30, actualDmg, bullet.isCrit);
+    if (bullet.damageSource === 'bullet' && actualDmg > 0) this.chargeCompanion('hit');
 
     if (this.skills.frostSlowMultiplier < 1 && zombie.hp > 0) {
       zombie.applySlow(this.skills.frostSlowMultiplier, 2.5);
+    }
+    if (bullet.cryoBurst && !bullet.cryoTriggered) {
+      this.triggerEquipmentCryo(bullet, zombie);
+    }
+    if (!died && bullet.knockback > 0) zombie.applyKnockback(bullet.knockback);
+    if (bullet.volatileCore && !bullet.volatileTriggered) {
+      bullet.volatileTriggered = true;
+      this.behaviorTelemetry.volatileBursts++;
+      this.doEquipmentExplosion(zombie.x, zombie.y, bullet.damage * 0.68, 118, zombie);
     }
     if (executing) this.showShockwave(zombie.x, zombie.y);
 
@@ -800,6 +1671,10 @@ export class GameScene extends Phaser.Scene {
       this.doExplosion(zombie.x, zombie.y);
     }
 
+    if (died && bullet.shrapnelOnKill && !bullet.fragment) {
+      this.spawnEquipmentShrapnel(zombie, bullet.damage * 0.34);
+    }
+
     const bulletEnded = bullet.onHit();
 
     // 连锁闪电：高等级弹射连续命中后自动跳链，专门对付尸潮密集区
@@ -821,10 +1696,64 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private showShockwave(x: number, y: number): void {
-    const sw = this.add.image(x, y, 'shockwave').setDepth(13).setScale(0.3).setAlpha(0.9);
+  private triggerEquipmentCryo(bullet: Bullet, source: Zombie): void {
+    bullet.cryoTriggered = true;
+    this.behaviorTelemetry.cryoBursts++;
+    const burst = this.add.image(source.x, source.y, 'shockwave')
+      .setDepth(13).setTint(0x80deea).setScale(0.28).setAlpha(0.82);
     this.tweens.add({
-      targets: sw, scale: 1.8, alpha: 0, duration: 280, ease: 'Cubic.Out',
+      targets: burst, scale: 1.35, alpha: 0, duration: 260,
+      onComplete: () => burst.destroy(),
+    });
+    for (const target of this.aliveZombies()) {
+      if (Phaser.Math.Distance.Between(source.x, source.y, target.x, target.y) <= 118) {
+        target.applySlow(0.35, 2.4);
+      }
+    }
+  }
+
+  private spawnEquipmentShrapnel(source: Zombie, damage: number): void {
+    this.behaviorTelemetry.shrapnelBursts++;
+    const targets = this.aliveZombies()
+      .filter((target) => target !== source && target.hp > 0)
+      .sort((a, b) => Phaser.Math.Distance.Between(source.x, source.y, a.x, a.y)
+        - Phaser.Math.Distance.Between(source.x, source.y, b.x, b.y))
+      .slice(0, 5);
+    targets.forEach((target) => {
+      const fragment = this.bullets.get() as Bullet | null;
+      if (!fragment) return;
+      const angle = Phaser.Math.Angle.Between(source.x, source.y, target.x, target.y);
+      fragment.fire(source.x, source.y, angle, damage, 0, false, 0, {
+        damageSource: 'equipment', fragment: true, tint: 0xa5d6a7, scale: 0.7,
+      });
+    });
+  }
+
+  private doEquipmentExplosion(
+    x: number,
+    y: number,
+    damage: number,
+    radius: number,
+    excluded?: Zombie,
+  ): void {
+    this.explosionEmitter.setPosition(x, y).setParticleTint(0xff7043).explode(14);
+    this.cameras.main.shake(90, 0.004);
+    AudioSystem.play('explosion', { volume: 0.42 });
+    for (const target of this.aliveZombies()) {
+      if (target === excluded || target.hp <= 0 || target.dying) continue;
+      const dist = Phaser.Math.Distance.Between(x, y, target.x, target.y);
+      if (dist > radius) continue;
+      const targetDied = target.takeDamage(damage * Math.max(0.32, 1 - dist / radius));
+      this.recordDamage('equipment', target);
+      if (targetDied) this.killZombie(target);
+    }
+  }
+
+  private showShockwave(x: number, y: number): void {
+    const sw = this.add.image(x, y, 'shockwave').setDepth(13).setScale(0.16).setAlpha(0.92)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: sw, scale: 1.35, alpha: 0, duration: 340, ease: 'Cubic.Out',
       onComplete: () => sw.destroy(),
     });
   }
@@ -872,6 +1801,7 @@ export class GameScene extends Phaser.Scene {
       this.lightningGraphics.lineStyle(12, 0xffd54f, 0.18);
       this.lightningGraphics.lineBetween(fromX, fromY, target.x, target.y);
       const died = target.takeDamage(this.skills.damage * 0.7);
+      this.recordDamage('lightning', target);
       if (died) this.killZombie(target);
       fromX = target.x;
       fromY = target.y;
@@ -884,8 +1814,9 @@ export class GameScene extends Phaser.Scene {
     const now = this.time.now;
     if ((this.thermalShockReadyAt.get(source) ?? 0) > now) return;
     this.thermalShockReadyAt.set(source, now + 1100);
-    const radius = 105;
-    const damage = this.skills.damage * 0.78;
+    const evolved = this.skills.hasSynergy('elementalCataclysm');
+    const radius = evolved ? 165 : 105;
+    const damage = this.skills.damage * (evolved ? 1.28 : 0.78);
     this.explosionEmitter.setPosition(source.x, source.y).setParticleTint(0x80deea).explode(16);
     const ring = this.add.image(source.x, source.y, 'shockwave').setDepth(13).setScale(0.35).setTint(0xff8a65);
     this.tweens.add({
@@ -895,9 +1826,11 @@ export class GameScene extends Phaser.Scene {
     for (const zombie of this.aliveZombies()) {
       if (Phaser.Math.Distance.Between(source.x, source.y, zombie.x, zombie.y) > radius) continue;
       const died = zombie.takeDamage(damage);
+      this.recordDamage('explosion', zombie);
       zombie.applySlow(Math.min(this.skills.frostSlowMultiplier, 0.7), 1.2);
       if (died) this.killZombie(zombie);
     }
+    if (evolved) this.doExplosion(source.x, source.y, 'explosion');
     AudioSystem.play('explosion', { volume: 0.42 });
   }
 
@@ -945,6 +1878,7 @@ export class GameScene extends Phaser.Scene {
       const targetZombie = alive[Phaser.Math.Between(0, alive.length - 1)];
       m.setData('target', targetZombie);
       m.setData('homing', true);
+      m.setData('damageSource', 'missile');
     }
     AudioSystem.play('shoot', { volume: 0.6 });
   }
@@ -966,6 +1900,7 @@ export class GameScene extends Phaser.Scene {
       missile.setScale(1.2).setTint(0x4de7ff);
       missile.setData('target', target);
       missile.setData('homing', true);
+      missile.setData('damageSource', 'airSupport');
     }
     AudioSystem.play('shoot', { volume: 0.45 });
   }
@@ -995,6 +1930,7 @@ export class GameScene extends Phaser.Scene {
       }
       const dmg = e.dps * dt;
       const died = e.zombie.takeDamage(dmg);
+      this.recordDamage('burn', e.zombie);
       // 灼烧粒子
       if (Math.random() < 0.3) {
         this.showBurnParticle(e.zombie.x, e.zombie.y);
@@ -1028,9 +1964,17 @@ export class GameScene extends Phaser.Scene {
   }
 
   private addOverdriveCharge(zombie: Zombie): void {
+    let gain = zombie.zType === 'boss' ? 32 : zombie.zType === 'swarm' ? 1 : 4;
+    if (this.battlefieldEvents.active?.def.key === 'infectionStorm' && this.eventGameplayStarted) {
+      gain += zombie.zType === 'swarm' ? 1 : 2;
+    }
+    this.grantOverdriveCharge(gain);
+  }
+
+  private grantOverdriveCharge(amount: number): void {
     const wasReady = this.overdriveReady;
-    const gain = zombie.zType === 'boss' ? 32 : zombie.zType === 'swarm' ? 1 : 4;
-    this.overdriveCharge = Math.min(100, this.overdriveCharge + gain);
+    const adjustedAmount = amount * this.challengeContractDef.overdriveMultiplier;
+    this.overdriveCharge = Math.min(100, this.overdriveCharge + Math.max(0, adjustedAmount));
     this.overdriveReady = this.overdriveCharge >= 100 && !this.skills.isOverdriveActive;
     if (!wasReady && this.overdriveReady) {
       const banner = this.add.text(GAME_WIDTH / 2, 930, '⚡ 过载就绪', {
@@ -1049,6 +1993,7 @@ export class GameScene extends Phaser.Scene {
     this.overdriveReady = false;
     this.overdriveTimer = 8;
     this.skills.setOverdrive(true);
+    this.runOverdriveUses++;
     this.cameras.main.flash(180, 182, 255, 106);
     this.showKillStreakBanner(99);
     AudioSystem.play('overdrive', { volume: 1 });
@@ -1133,6 +2078,7 @@ export class GameScene extends Phaser.Scene {
       const dist = Phaser.Math.Distance.Between(z.x, z.y, projX, projY);
       if (dist < 30) {
         const died = z.takeDamage(dmg);
+        this.recordDamage('laser', z);
         if (died) this.killZombie(z);
       }
     }
@@ -1140,7 +2086,7 @@ export class GameScene extends Phaser.Scene {
 
   // ─── 爆炸 ───
 
-  private doExplosion(x: number, y: number): void {
+  private doExplosion(x: number, y: number, source: DamageSourceKey = 'explosion'): void {
     const radius = this.skills.hasSynergy('doomsday')
       ? this.skills.explosiveRadius * 1.5
       : this.skills.explosiveRadius;
@@ -1165,6 +2111,7 @@ export class GameScene extends Phaser.Scene {
       const dist = Phaser.Math.Distance.Between(x, y, z.x, z.y);
       if (dist < radius) {
         const died = z.takeDamage(damage * (1 - dist / radius));
+        this.recordDamage(source, z);
         if (died) this.killZombie(z);
       }
     }
@@ -1177,6 +2124,9 @@ export class GameScene extends Phaser.Scene {
 
     // 铜墙铁壁无敌
     if (this.wallInvulnTimer > 0) return;
+
+    dmg *= this.challengeContractDef.wallDamageMultiplier;
+    this.triggerBehaviorWallModule(dmg);
 
     // 护盾吸收
     if (this.wallShield > 0) {
@@ -1209,8 +2159,10 @@ export class GameScene extends Phaser.Scene {
           const d = Phaser.Math.Distance.Between(GAME_WIDTH / 2, WALL_Y, z.x, z.y);
           if (d < minD) { minD = d; nearest = z; }
         }
-        nearest.takeDamage(dmg * this.skills.thornsDamage);
-        this.showDamageText(nearest.x, nearest.y - 20, Math.round(dmg * this.skills.thornsDamage), false);
+        const died = nearest.takeDamage(dmg * this.skills.thornsDamage);
+        this.recordDamage('thorns', nearest);
+        this.showDamageText(nearest.x, nearest.y - 20, Math.round(nearest.lastDamageTaken), false);
+        if (died) this.killZombie(nearest);
       }
     }
 
@@ -1224,18 +2176,75 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private triggerBehaviorWallModule(incomingDamage: number): void {
+    if (this.wallModuleCooldown > 0) return;
+    const nearWall = this.aliveZombies()
+      .filter((zombie) => WALL_Y - zombie.y <= 340)
+      .sort((a, b) => b.y - a.y);
+    if (nearWall.length === 0) return;
+
+    let targets: Zombie[];
+    let damage: number;
+    let knockback: number;
+    let tint: number;
+    if (this.behaviorLoadout.wall === 'wall_pulse') {
+      this.wallModuleCooldown = 8;
+      this.behaviorTelemetry.wallPulses++;
+      targets = nearWall;
+      damage = this.skills.damage * 1.05;
+      knockback = 96;
+      tint = 0x64b5f6;
+    } else if (this.behaviorLoadout.wall === 'wall_reflector') {
+      this.wallModuleCooldown = 0.8;
+      this.behaviorTelemetry.reflectionBlasts++;
+      targets = nearWall.slice(0, 6);
+      damage = Math.max(this.skills.damage * 0.72, incomingDamage * 0.62);
+      knockback = 54;
+      tint = 0xffcc80;
+    } else {
+      return;
+    }
+
+    const pulse = this.add.image(GAME_WIDTH / 2, WALL_Y - 20, 'shockwave')
+      .setDepth(14).setTint(tint).setScale(0.55, 0.22).setAlpha(0.9);
+    this.tweens.add({
+      targets: pulse, scaleX: 7.5, scaleY: 2.2, alpha: 0, duration: 330,
+      onComplete: () => pulse.destroy(),
+    });
+    targets.forEach((target) => {
+      const died = target.takeDamage(damage);
+      this.recordDamage('equipment', target);
+      if (died) this.killZombie(target);
+      else target.applyKnockback(knockback);
+    });
+    this.cameras.main.shake(130, 0.006);
+    AudioSystem.play('lightning', { volume: 0.48 });
+  }
+
   // ─── 击杀僵尸 ───
 
   private killZombie(zombie: Zombie): void {
     const isBoss = zombie.zType === 'boss';
+    const isSwarm = zombie.zType === 'swarm';
+    const killedElite = zombie.eliteAffix !== null;
+    if (isBoss) this.runBossKills++;
     // 击杀爆破感：共享粒子发射器，尸潮时不会为每只敌人创建新对象
     const particleCount = isBoss ? 40 : zombie.zType === 'swarm' ? 5 : 16;
     this.bloodEmitter.setPosition(zombie.x, zombie.y);
     this.bloodEmitter.setParticleTint(isBoss ? 0xffd54a : 0x8bc34a);
     this.bloodEmitter.explode(particleCount);
+    if (!isSwarm || Math.random() < 0.25) {
+      this.sparkEmitter.setPosition(zombie.x, zombie.y)
+        .setParticleTint(isBoss ? 0xff4f81 : 0xffd54a)
+        .explode(isBoss ? 28 : 8);
+    }
+    if (isBoss || zombie.eliteAffix) {
+      this.smokeEmitter.setPosition(zombie.x, zombie.y)
+        .setParticleTint(isBoss ? 0x7c3a6e : 0x52646b)
+        .explode(isBoss ? 14 : 5);
+    }
 
     // 击杀径向闪光 + 冲击波
-    const isSwarm = zombie.zType === 'swarm';
     if (!isSwarm || Math.random() < 0.3) this.showKillBurst(zombie.x, zombie.y, isBoss);
     if (!isSwarm || Math.random() < 0.2) this.showShockwave(zombie.x, zombie.y);
     if (isBoss) {
@@ -1248,15 +2257,41 @@ export class GameScene extends Phaser.Scene {
     // 击杀音效
     AudioSystem.play(isBoss ? 'explosion' : 'kill', { volume: isBoss ? 1 : 0.7 });
 
+    if (this.behaviorLoadout.wall === 'wall_salvage' && (killedElite || isBoss)) {
+      this.applyBehaviorSalvage(isBoss);
+    }
+
     // 连杀
     this.skills.onKill();
+    this.chargeCompanion('kill');
+    if (this.endlessRun) {
+      this.endlessRun.recordKill(zombie.coinValue, killedElite, isBoss);
+      this.updateEndlessStatus();
+    }
     this.applyFieldMedicIfReady();
     this.streakTimer = 0;
     this.addOverdriveCharge(zombie);
 
-    if (zombie.zType === 'splitter') {
-      this.spawnZombie('swarm', Phaser.Math.Clamp(zombie.x - 24, 48, GAME_WIDTH - 48), zombie.y);
-      this.spawnZombie('swarm', Phaser.Math.Clamp(zombie.x + 24, 48, GAME_WIDTH - 48), zombie.y + 10);
+    if (killedElite && this.battlefieldEvents.active?.def.key === 'eliteHunt' && this.eventGameplayStarted) {
+      this.eventEliteKills++;
+      this.runCoins += 12;
+      this.grantOverdriveCharge(6);
+      this.updateBattlefieldEventStatus(this.battlefieldEvents.active);
+      this.showEventRewardFeedback(`精英击破 ${this.eventEliteKills}/${this.eventEliteQuota} · +12 金`, 0xff6e6e);
+      if (this.eventEliteKills >= this.eventEliteQuota) this.completeBattlefieldEvent('huntComplete');
+    }
+
+    if (zombie.zType === 'splitter' || zombie.eliteAffix === 'splitting') {
+      const splitCount = zombie.zType === 'splitter' && zombie.eliteAffix === 'splitting' ? 4 : 2;
+      for (let i = 0; i < splitCount; i++) {
+        const offset = (i - (splitCount - 1) / 2) * 24;
+        this.spawnZombie(
+          'swarm',
+          Phaser.Math.Clamp(zombie.x + offset, 48, GAME_WIDTH - 48),
+          zombie.y + (i % 2) * 10,
+          null,
+        );
+      }
       AudioSystem.play('summon', { volume: 0.35 });
     }
 
@@ -1267,7 +2302,12 @@ export class GameScene extends Phaser.Scene {
 
     // 掉金币
     const value = Math.max(1,
-      Math.round(zombie.coinValue * this.skills.coinMultiplier) + MetaUpgrades.flatCoinBonus(),
+      Math.round(
+        zombie.coinValue
+        * this.skills.coinMultiplier
+        * this.challengeContractDef.coinMultiplier
+        * (this.dailyChallenge?.modifier.key === 'eliteBounty' && killedElite ? 1.5 : 1),
+      ) + MetaUpgrades.flatCoinBonus(),
     );
     const c = this.coins.get() as Coin | null;
     if (c) {
@@ -1293,10 +2333,82 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  private applyBehaviorSalvage(isBoss: boolean): void {
+    this.behaviorTelemetry.salvageRepairs++;
+    const requested = Math.max(1, Math.round(this.wallMaxHp * (isBoss ? 0.14 : 0.045)));
+    const repaired = Math.min(requested, Math.max(0, this.wallMaxHp - this.wallHp));
+    if (repaired <= 0) return;
+    this.wallHp += repaired;
+    const label = this.add.text(GAME_WIDTH / 2, WALL_Y - 42, `回收修复 +${repaired}`, {
+      fontFamily: FONT, fontSize: '23px', fontStyle: 'bold', color: '#81c784',
+      stroke: '#102218', strokeThickness: 4,
+    }).setOrigin(0.5).setDepth(20);
+    this.tweens.add({
+      targets: label, y: label.y - 38, alpha: 0, duration: 820,
+      onComplete: () => label.destroy(),
+    });
+    AudioSystem.play('heal', { volume: 0.5 });
+  }
+
   // ─── 工具方法 ───
 
   private aliveZombies(): Zombie[] {
     return (this.zombies.getChildren() as Zombie[]).filter((z) => z.active && z.hp > 0);
+  }
+
+  private createEmptyDamageTotals(): Record<DamageSourceKey, number> {
+    return {
+      bullet: 0, burn: 0, explosion: 0, missile: 0, airSupport: 0,
+      laser: 0, lightning: 0, gravity: 0, mine: 0, support: 0, thorns: 0,
+      equipment: 0,
+      companion: 0,
+    };
+  }
+
+  private recordDamage(source: DamageSourceKey, zombie: Zombie): void {
+    if (zombie.lastDamageTaken <= 0) return;
+    this.damageTotals[source] += zombie.lastDamageTaken;
+  }
+
+  getDamageBreakdown(): { key: DamageSourceKey; label: string; damage: number; percent: number }[] {
+    const total = Object.values(this.damageTotals).reduce((sum, value) => sum + value, 0);
+    return (Object.keys(this.damageTotals) as DamageSourceKey[])
+      .map((key) => ({
+        key,
+        label: DAMAGE_SOURCE_LABELS[key],
+        damage: Math.round(this.damageTotals[key]),
+        percent: total > 0 ? this.damageTotals[key] / total : 0,
+      }))
+      .filter((entry) => entry.damage > 0)
+      .sort((a, b) => b.damage - a.damage);
+  }
+
+  setPerformanceMonitoring(enabled: boolean): void {
+    this.performanceStats.enabled = enabled;
+    if (enabled) this.performanceLowFps = this.game.loop.actualFps || 60;
+  }
+
+  private updatePerformanceStats(dt: number, alive: Zombie[]): void {
+    if (!this.performanceStats.enabled) return;
+    const fps = this.game.loop.actualFps || 60;
+    this.performanceLowFps = Math.min(this.performanceLowFps, fps);
+    this.performanceSampleTimer += dt;
+    if (this.performanceSampleTimer < 0.25) return;
+    this.performanceSampleTimer = 0;
+    const projectiles = (this.bullets.countActive(true) + this.missiles.countActive(true) + this.acidBalls.countActive(true));
+    const particles = this.bloodEmitter.getAliveParticleCount()
+      + this.explosionEmitter.getAliveParticleCount()
+      + this.sparkEmitter.getAliveParticleCount()
+      + this.smokeEmitter.getAliveParticleCount();
+    this.performanceStats = {
+      enabled: true,
+      fps: Math.round(fps),
+      lowFps: Math.round(this.performanceLowFps),
+      enemies: alive.length,
+      projectiles,
+      particles,
+      elites: alive.reduce((count, zombie) => count + (zombie.eliteAffix ? 1 : 0), 0),
+    };
   }
 
   private showDamageText(x: number, y: number, dmg: number, crit: boolean): void {
@@ -1326,10 +2438,23 @@ export class GameScene extends Phaser.Scene {
     const burst = this.add.graphics().setDepth(13);
     const maxR = isBoss ? 120 : 50;
     const color = isBoss ? 0xff1744 : 0xffd54a;
-    burst.fillStyle(color, 0.7).fillCircle(0, 0, maxR);
+    burst.fillStyle(color, 0.18).fillCircle(0, 0, maxR);
+    burst.fillStyle(0xffffff, 0.75).fillCircle(0, 0, isBoss ? 22 : 9);
+    burst.lineStyle(isBoss ? 6 : 3, color, 0.92).strokeCircle(0, 0, maxR * 0.62);
+    burst.lineStyle(isBoss ? 5 : 3, 0xffffff, 0.7);
+    const rays = isBoss ? 12 : 8;
+    for (let i = 0; i < rays; i++) {
+      const angle = (i / rays) * Math.PI * 2;
+      burst.lineBetween(
+        Math.cos(angle) * maxR * 0.2,
+        Math.sin(angle) * maxR * 0.2,
+        Math.cos(angle) * maxR,
+        Math.sin(angle) * maxR,
+      );
+    }
     burst.setPosition(x, y);
     this.tweens.add({
-      targets: burst, alpha: 0, scale: isBoss ? 2 : 1.8, duration: 300, ease: 'Cubic.Out',
+      targets: burst, alpha: 0, scale: isBoss ? 1.45 : 1.7, duration: 320, ease: 'Cubic.Out',
       onComplete: () => burst.destroy(),
     });
     // 击杀镜头震动
@@ -1383,7 +2508,7 @@ export class GameScene extends Phaser.Scene {
     bg.fillStyle(0xffa726, 0.9).fillRoundedRect(GAME_WIDTH / 2 - 240, 160, 480, 90, 16);
     bg.fillStyle(0xffffff, 0.15).fillRoundedRect(GAME_WIDTH / 2 - 240, 160, 480, 45, { tl: 16, tr: 16, bl: 0, br: 0 });
 
-    const icon = this.add.image(GAME_WIDTH / 2 - 180, 205, syn.icon).setScale(1.3).setDepth(26);
+    const icon = this.add.image(GAME_WIDTH / 2 - 180, 205, syn.icon).setDisplaySize(84, 84).setDepth(26);
     const title = this.add.text(GAME_WIDTH / 2 - 140, 185, syn.name, {
       fontFamily: FONT, fontSize: '32px', fontStyle: 'bold', color: '#1a2530',
     }).setDepth(26);
@@ -1436,12 +2561,23 @@ export class GameScene extends Phaser.Scene {
 
     const alive = this.aliveZombies();
     this.enemyCount = alive.length;
+    this.updatePerformanceStats(dt, alive);
     this.hordeProgress = this.waveManager.hordeProgress;
     this.updateConductorAuras(alive);
+
+    if (this.waveStartDelay > 0) {
+      this.waveStartDelay = Math.max(0, this.waveStartDelay - dt);
+      if (this.waveStartDelay === 0) this.beginBattlefieldEventGameplay();
+      return;
+    }
+
     const jammerCount = alive.reduce((count, zombie) => count + (zombie.zType === 'jammer' ? 1 : 0), 0);
-    this.skills.setEnemyFireRateMultiplier(1 - jammerCount * 0.08);
+    const jammerMultiplier = Phaser.Math.Clamp(1 - jammerCount * 0.08, 0.65, 1);
+    this.skills.setEnemyFireRateMultiplier(jammerMultiplier * this.eventFireRateMultiplier);
+    this.updateBehaviorEquipment(dt, alive.length > 0);
     this.cannon.update(dt, alive);
     this.waveManager.update(dt, alive.length);
+    this.updateBattlefieldEvent(dt);
 
     // 顿帧：顿帧期间跳过游戏逻辑更新
     this.updateHitStop(dt);
@@ -1541,12 +2677,28 @@ export class GameScene extends Phaser.Scene {
     // 波次清空：慢动作 + 下一波提示
     if (!this.transitioning && this.waveManager.state === 'idle' && this.waveManager.currentWave > 0 && alive.length === 0) {
       this.transitioning = true;
+      this.completeBattlefieldEvent('waveEnd');
+      const clearedWave = this.waveManager.currentWave;
+      this.runWavesCleared++;
       if (this.waveManager.isLastWave) {
         this.applySlowMo(0.8, 0.3);
         this.time.delayedCall(450, () => this.endLevel(true));
       } else {
         this.applySlowMo(0.5, 0.4);
-        this.time.delayedCall(180, () => this.showUpgradeChoices());
+        if (this.endlessRun) {
+          this.endlessRun.completeWave(clearedWave, this.wallHp / this.wallMaxHp);
+          this.isHordeActive = false;
+          this.updateEndlessStatus();
+        }
+        if (this.contractWave === clearedWave) {
+          this.contractWave = 0;
+          this.contractStatus = '';
+        }
+        this.time.delayedCall(180, () => {
+          if (this.endlessRun && clearedWave % 5 === 0) this.showEndlessMilestone(clearedWave);
+          else if (this.contractOfferWaves.has(clearedWave)) this.showPressureContract();
+          else this.showUpgradeChoices();
+        });
       }
     }
   }
@@ -1677,14 +2829,134 @@ export class GameScene extends Phaser.Scene {
   private finishPreGame(): void {
     this.choosingUpgrade = false;
     this.transitioning = false;
-    this.waveManager.setMonsterMultiplier(PRE_GAME_MONSTER_MULTIPLIER);
+    this.waveManager.setMonsterMultiplier(
+      PRE_GAME_MONSTER_MULTIPLIER
+      * (this.dailyChallenge?.modifier.enemyCountMultiplier ?? 1)
+      * this.challengeContractDef.enemyCountMultiplier,
+    );
     this.physics.resume();
     this.beginWave();
   }
 
+  private updateEndlessStatus(): void {
+    const run = this.endlessRun;
+    if (!run) {
+      this.endlessStatus = '';
+      return;
+    }
+    this.endlessStatus = `无尽 #${run.code} · ${run.score} 分 · 变异 ${run.totalMutationStacks}`;
+  }
+
+  private showEndlessMilestone(wave: number): void {
+    const milestone = this.endlessRun?.addMilestone(wave);
+    if (!milestone || this.finished) {
+      this.showUpgradeChoices();
+      return;
+    }
+    this.choosingUpgrade = true;
+    this.physics.pause();
+    const repaired = Math.round(this.wallMaxHp * milestone.repairRatio);
+    this.wallHp = Math.min(this.wallMaxHp, this.wallHp + repaired);
+    this.runCoins += milestone.coins;
+    this.grantOverdriveCharge(milestone.overdrive);
+    this.endlessColor = milestone.mutation.def.color;
+    this.updateEndlessStatus();
+
+    const overlay = createOverlay(this, 0.72).setDepth(30);
+    const panel = this.add.graphics().setDepth(31);
+    panel.fillStyle(0x101820, 0.98).fillRoundedRect(46, 224, GAME_WIDTH - 92, 590, 8);
+    panel.lineStyle(3, milestone.mutation.def.color, 0.9)
+      .strokeRoundedRect(46, 224, GAME_WIDTH - 92, 590, 8);
+    const title = this.add.text(GAME_WIDTH / 2, 294, `第 ${wave} 波突破`, {
+      fontFamily: FONT, fontSize: '46px', fontStyle: 'bold', color: '#ffd54a',
+      stroke: '#1a2530', strokeThickness: 7,
+    }).setOrigin(0.5).setDepth(32);
+    const mutation = this.add.text(GAME_WIDTH / 2, 390, milestone.mutation.def.name, {
+      fontFamily: FONT, fontSize: '42px', fontStyle: 'bold', color: milestone.mutation.def.colorHex,
+      stroke: '#1a2530', strokeThickness: 6,
+    }).setOrigin(0.5).setDepth(32).setScale(0.4);
+    this.tweens.add({ targets: mutation, scale: 1, duration: 320, ease: 'Back.Out' });
+    const stacks = this.add.text(
+      GAME_WIDTH / 2,
+      448,
+      `${milestone.mutation.def.danger} · 层数 ${milestone.mutation.stacks}`,
+      { fontFamily: FONT, fontSize: '20px', fontStyle: 'bold', color: '#ff8a80' },
+    ).setOrigin(0.5).setDepth(32);
+    const reward = this.add.text(
+      GAME_WIDTH / 2,
+      548,
+      `防线修复 ${repaired}\n过载 +${milestone.overdrive}\n金币 +${milestone.coins}`,
+      { fontFamily: FONT, fontSize: '25px', fontStyle: 'bold', color: '#69f0ae', align: 'center', lineSpacing: 14 },
+    ).setOrigin(0.5).setDepth(32);
+    const next = this.add.text(GAME_WIDTH / 2, 718, '稀有军火投送中', {
+      fontFamily: FONT, fontSize: '22px', fontStyle: 'bold', color: '#90caf9',
+    }).setOrigin(0.5).setDepth(32);
+    this.cameras.main.flash(220, 255, 167, 38, false);
+    AudioSystem.play('upgrade', { volume: 0.9 });
+
+    this.time.delayedCall(1650, () => {
+      [overlay, panel, title, mutation, stacks, reward, next].forEach((object) => object.destroy());
+      if (this.finished) return;
+      this.choosingUpgrade = false;
+      this.showUpgradeChoices({ title: '无尽补给 · 稀有保底', minimumRarity: 'rare', accent: '#69f0ae' });
+    });
+  }
+
   // ─── 三选一技能选择 ───
 
-  private showUpgradeChoices(): void {
+  private showPressureContract(): void {
+    if (this.choosingUpgrade || this.finished) return;
+    this.choosingUpgrade = true;
+    this.physics.pause();
+    const nextWave = this.waveManager.currentWave + 1;
+    const rewardCoins = 45 + this.level.id * 8;
+    const overlay = createOverlay(this, 0.72).setDepth(30);
+    const panel = this.add.graphics().setDepth(31);
+    panel.fillStyle(0x121b22, 0.98).fillRoundedRect(54, 220, GAME_WIDTH - 108, 690, 8);
+    panel.lineStyle(3, 0xff5252, 0.8).strokeRoundedRect(54, 220, GAME_WIDTH - 108, 690, 8);
+    const title = this.add.text(GAME_WIDTH / 2, 286, '压力契约', {
+      fontFamily: FONT, fontSize: '48px', fontStyle: 'bold', color: '#ff6e6e',
+      stroke: '#260b0b', strokeThickness: 8,
+    }).setOrigin(0.5).setDepth(32);
+    const subtitle = this.add.text(GAME_WIDTH / 2, 346, `下一波 · 第 ${nextWave} 波`, {
+      fontFamily: FONT, fontSize: '22px', fontStyle: 'bold', color: '#b0bec5',
+    }).setOrigin(0.5).setDepth(32);
+
+    const danger = this.add.text(104, 430,
+      '危险增幅\n\n敌军规模 +38%\n移动速度 +14%\n精英出现率 +20%', {
+        fontFamily: FONT, fontSize: '25px', fontStyle: 'bold', color: '#ff8a80',
+        lineSpacing: 12,
+      }).setDepth(32);
+    const reward = this.add.text(390, 430,
+      `契约军火\n\n稀有以上三选一\n立即获得 ${rewardCoins} 金\n精英掉落翻倍`, {
+        fontFamily: FONT, fontSize: '25px', fontStyle: 'bold', color: '#69f0ae',
+        lineSpacing: 12,
+      }).setDepth(32);
+
+    const contractUi: Phaser.GameObjects.GameObject[] = [overlay, panel, title, subtitle, danger, reward];
+    const cleanup = () => {
+      contractUi.forEach((item) => item.destroy());
+      this.choosingUpgrade = false;
+    };
+    const accept = createButton(this, GAME_WIDTH / 2, 720, '签下契约', () => {
+      cleanup();
+      this.contractWave = nextWave;
+      this.contractStatus = `压力契约 · 第 ${nextWave} 波`;
+      this.waveManager.setNextWaveMultiplier(1.38);
+      this.runCoins += rewardCoins;
+      AudioSystem.play('upgrade');
+      this.showUpgradeChoices({ title: '契约军火 · 稀有保底', minimumRarity: 'rare', accent: '#69f0ae' });
+    }, { width: 360, height: 82, color: 0xa83232, colorDown: 0x7a2020, fontSize: 30 });
+    const decline = createButton(this, GAME_WIDTH / 2, 830, '稳守阵线', () => {
+      cleanup();
+      this.showUpgradeChoices();
+    }, { width: 300, height: 68, color: 0x455a64, colorDown: 0x33434d, fontSize: 25 });
+    accept.setDepth(32);
+    decline.setDepth(32);
+    contractUi.push(accept, decline);
+  }
+
+  private showUpgradeChoices(options: { title?: string; minimumRarity?: Rarity; accent?: string } = {}): void {
     if (this.choosingUpgrade) return;
     this.choosingUpgrade = true;
     this.physics.pause();
@@ -1698,7 +2970,10 @@ export class GameScene extends Phaser.Scene {
       pendingText?.destroy();
       cards = [];
 
-      const choices = this.skills.rollChoices(3);
+      let choices = this.skills.rollChoices(3, options.minimumRarity ?? 'common');
+      if (choices.length === 0 && options.minimumRarity && options.minimumRarity !== 'common') {
+        choices = this.skills.rollChoices(3);
+      }
       if (choices.length === 0) {
         this.resumeAfterChoice();
         return;
@@ -1706,8 +2981,8 @@ export class GameScene extends Phaser.Scene {
 
       overlay = createOverlay(this, 0.6).setDepth(30);
       title = this.add
-        .text(GAME_WIDTH / 2, 180, '选择一项强化', {
-          fontFamily: FONT, fontSize: '44px', fontStyle: 'bold', color: '#ffffff',
+        .text(GAME_WIDTH / 2, 180, options.title ?? '选择一项强化', {
+          fontFamily: FONT, fontSize: '44px', fontStyle: 'bold', color: options.accent ?? '#ffffff',
           stroke: '#1a2530', strokeThickness: 6,
         })
         .setOrigin(0.5).setDepth(31);
@@ -1790,14 +3065,23 @@ export class GameScene extends Phaser.Scene {
     const rarityColor = RARITY_HEX[skill.rarity];
 
     const g = this.add.graphics();
-    // 背景
-    g.fillStyle(0x1a2530, 1).fillRoundedRect(-w / 2, -h / 2, w, h, 18);
-    // 稀有度边框
     const borderColor = parseInt(rarityColor.replace('#', ''), 16);
-    g.lineStyle(3, borderColor, 0.9).strokeRoundedRect(-w / 2, -h / 2, w, h, 18);
-    // 顶部稀有度色带
-    g.fillStyle(borderColor, 0.3).fillRoundedRect(-w / 2, -h / 2, w, 50,
-      { tl: 18, tr: 18, bl: 0, br: 0 });
+    // 阴影、深色复合材质和顶部稀有度光带。
+    g.fillStyle(0x000000, 0.42).fillRoundedRect(-w / 2 + 5, -h / 2 + 9, w, h, 12);
+    g.fillGradientStyle(0x243540, 0x243540, 0x111a21, 0x111a21, 1)
+      .fillRoundedRect(-w / 2, -h / 2, w, h, 12);
+    g.fillStyle(0xffffff, 0.035).fillRoundedRect(-w / 2 + 7, -h / 2 + 7, w - 14, h - 14, 8);
+    g.fillGradientStyle(borderColor, borderColor, 0x111a21, 0x111a21, 0.34)
+      .fillRoundedRect(-w / 2, -h / 2, w, 64, { tl: 12, tr: 12, bl: 0, br: 0 });
+    g.lineStyle(3, borderColor, 0.94).strokeRoundedRect(-w / 2, -h / 2, w, h, 12);
+    g.lineStyle(1, 0xffffff, 0.15).strokeRoundedRect(-w / 2 + 6, -h / 2 + 6, w - 12, h - 12, 8);
+    // 军械卡片角标，缩小时比细密纹理更清晰。
+    g.lineStyle(3, borderColor, 0.85)
+      .lineBetween(-w / 2 + 9, -h / 2 + 22, -w / 2 + 9, -h / 2 + 9)
+      .lineBetween(-w / 2 + 9, -h / 2 + 9, -w / 2 + 22, -h / 2 + 9)
+      .lineBetween(w / 2 - 9, h / 2 - 22, w / 2 - 9, h / 2 - 9)
+      .lineBetween(w / 2 - 9, h / 2 - 9, w / 2 - 22, h / 2 - 9);
+    g.fillStyle(borderColor, 0.8).fillCircle(0, h / 2 - 11, 3);
     // 即将激活组合技的高亮边框
     if (hasNearSynergy) {
       g.lineStyle(3, 0xffa726, 0.9).strokeRoundedRect(-w / 2 - 3, -h / 2 - 3, w + 6, h + 6, 20);
@@ -1809,7 +3093,27 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    const icon = this.add.image(0, -50, skill.icon).setScale(1.2);
+    const pathNames = BUILD_PATHS
+      .filter((path) => path.goals.some((goal) => goal.skill === skill.key))
+      .map((path) => path.name);
+    const pathText = this.add.text(0, -h / 2 + 62, pathNames.length > 0 ? `流派 · ${pathNames.join(' / ')}` : `战术 · ${skill.category === 'defense' ? '防线' : skill.category === 'utility' ? '支援' : '通用'}`, {
+      fontFamily: FONT, fontSize: '13px', fontStyle: 'bold', color: '#8fa3b0',
+    }).setOrigin(0.5);
+
+    const iconHalo = this.add.graphics();
+    iconHalo.fillStyle(borderColor, 0.08).fillCircle(0, -50, 55);
+    iconHalo.lineStyle(2, borderColor, 0.44).strokeCircle(0, -50, 44);
+    iconHalo.lineStyle(1, 0xffffff, 0.18).arc(0, -50, 37, 3.4, 5.8);
+    for (let i = 0; i < 4; i++) {
+      const angle = i * Math.PI / 2 + Math.PI / 4;
+      iconHalo.lineStyle(2, borderColor, 0.35).lineBetween(
+        Math.cos(angle) * 47,
+        -50 + Math.sin(angle) * 47,
+        Math.cos(angle) * 53,
+        -50 + Math.sin(angle) * 53,
+      );
+    }
+    const icon = this.add.image(0, -50, skill.icon).setScale(1.15);
     const name = this.add
       .text(0, 20, skill.name, {
         fontFamily: FONT, fontSize: '26px', fontStyle: 'bold', color: '#ffffff',
@@ -1819,16 +3123,16 @@ export class GameScene extends Phaser.Scene {
       .text(0, 55, currentLevel === 0 ? '新技能!' : `Lv.${currentLevel} → Lv.${currentLevel + 1}`,
         textStyle(18, '#8fbf8f'))
       .setOrigin(0.5);
-    const wrappedDesc = skill.desc.match(/.{1,8}/g)?.join('\n') ?? skill.desc;
+    const wrappedDesc = skill.desc.match(/.{1,10}/g)?.join('\n') ?? skill.desc;
     const desc = this.add
-      .text(0, 105, wrappedDesc, { ...textStyle(18, '#aab8c2'), align: 'center', lineSpacing: 3 })
+      .text(0, 100, wrappedDesc, { ...textStyle(17, '#aab8c2'), align: 'center', lineSpacing: 2 })
       .setOrigin(0.5);
 
-    const children: Phaser.GameObjects.GameObject[] = [g, rarityText, icon, name, lv, desc];
+    const children: Phaser.GameObjects.GameObject[] = [g, rarityText, pathText, iconHalo, icon, name, lv, desc];
 
     // 组合技提示
     if (hasNearSynergy) {
-      const nearText = nearSynergies.map((s) => `⚡可激活: ${s.name}`).join('\n');
+      const nearText = nearSynergies.map((s) => `${s.ultimate ? '终极进化' : '可激活'}: ${s.name}`).join('\n');
       const hint = this.add
         .text(0, 155, nearText, {
           ...textStyle(16, '#ffa726'), fontStyle: 'bold',
@@ -1857,6 +3161,9 @@ export class GameScene extends Phaser.Scene {
 
     card.setScale(0.8).setAlpha(0);
     this.tweens.add({ targets: card, scale: 1, alpha: 1, duration: 220, ease: 'Back.Out' });
+    if (hasNearSynergy) {
+      this.tweens.add({ targets: iconHalo, alpha: 0.55, duration: 650, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+    }
     return card;
   }
 
@@ -1869,23 +3176,66 @@ export class GameScene extends Phaser.Scene {
 
   // ─── 结算 ───
 
+  finishEndlessRun(): void {
+    if (this.endlessRun) this.endLevel(false);
+  }
+
   private endLevel(victory: boolean): void {
     if (this.finished) return;
+    if (this.endlessRun) victory = false;
     this.finished = true;
     this.transitioning = false;
+    this.battlefieldEvents.finishActive();
+    this.cleanupBattlefieldEventObjects();
+    this.eventEnemySpeedMultiplier = 1;
+    this.eventFireRateMultiplier = 1;
+    this.eventEliteQuota = 0;
+    this.eventEliteSpawned = 0;
+    this.eventEliteKills = 0;
+    this.waveStartDelay = 0;
+    this.eventGameplayStarted = false;
+    this.battlefieldEventStatus = '';
+    this.battlefieldEventProgress = 0;
     this.physics.pause();
     AudioSystem.stopBGM();
     AudioSystem.play(victory ? 'win' : 'lose');
 
     let coinsEarned: number;
     let stars = 0;
-    if (victory) {
+    let dailyFirstClear = false;
+    if (this.endlessRun) {
+      coinsEarned = Math.floor(this.runCoins * 0.7);
+      SaveManager.recordEndlessRun(this.waveManager.currentWave, this.endlessRun.score);
+    } else if (victory) {
       stars = starsForWallRatio(this.wallHp / this.wallMaxHp);
-      coinsEarned = this.runCoins + levelClearReward(this.level.id, stars);
-      SaveManager.recordLevelClear(this.level.id, stars, LEVELS.length);
+      if (this.dailyChallenge) {
+        dailyFirstClear = !SaveManager.hasDailyClear(this.dailyChallenge.dateKey);
+        coinsEarned = this.runCoins + (dailyFirstClear
+          ? this.dailyChallenge.firstClearReward
+          : this.dailyChallenge.repeatReward);
+        SaveManager.recordDailyClear(this.dailyChallenge.dateKey, stars);
+      } else {
+        const clearReward = Math.round(
+          levelClearReward(this.level.id, stars) * this.challengeContractDef.coinMultiplier,
+        );
+        coinsEarned = this.runCoins + clearReward;
+        SaveManager.recordLevelClear(this.level.id, stars, LEVELS.length);
+      }
     } else {
       coinsEarned = Math.floor(this.runCoins / 2);
     }
+    const wallRatio = this.wallMaxHp > 0 ? this.wallHp / this.wallMaxHp : 0;
+    SaveManager.recordCombatProgress({
+      kills: this.skills.totalKills,
+      waves: this.runWavesCleared,
+      overdrives: this.runOverdriveUses,
+      synergies: this.runSynergiesActivated,
+      bosses: this.runBossKills,
+      victories: victory ? 1 : 0,
+      maxStreak: this.skills.maxKillStreak,
+      endlessWave: this.endlessRun ? this.waveManager.currentWave : 0,
+      perfectVictories: victory && wallRatio >= 0.9 ? 1 : 0,
+    });
     SaveManager.addCoins(coinsEarned);
 
     this.time.delayedCall(600, () => {
@@ -1898,6 +3248,16 @@ export class GameScene extends Phaser.Scene {
         maxStreak: this.skills.maxKillStreak,
         totalKills: this.skills.totalKills,
         synergies: this.skills.getActiveSynergies().map((s) => s.name),
+        dailyChallengeDate: this.dailyChallenge?.dateKey,
+        dailyModifierName: this.dailyChallenge?.modifier.name,
+        dailyFirstClear,
+        endlessSeed: this.endlessRun?.seed,
+        endlessWave: this.endlessRun ? this.waveManager.currentWave : undefined,
+        endlessScore: this.endlessRun?.score,
+        endlessBestWave: this.endlessRun ? SaveManager.endlessBestWave : undefined,
+        endlessBestScore: this.endlessRun ? SaveManager.endlessBestScore : undefined,
+        endlessMutations: this.endlessRun?.activeMutations.map((mutation) =>
+          `${mutation.def.name}${mutation.stacks > 1 ? `×${mutation.stacks}` : ''}`),
       });
     });
   }

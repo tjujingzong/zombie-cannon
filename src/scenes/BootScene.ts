@@ -9,6 +9,18 @@ export class BootScene extends Phaser.Scene {
     super('Boot');
   }
 
+  preload(): void {
+    this.load.image('art_zombie_boss_v1', 'assets/generated/zombies/zombie-boss-v1.png');
+    this.load.image('art_elite_swift_v1', 'assets/generated/zombies/elite-swift-v1.png');
+    this.load.image('art_elite_armored_v1', 'assets/generated/zombies/elite-armored-v1.png');
+    this.load.image('art_elite_regenerating_v1', 'assets/generated/zombies/elite-regenerating-v1.png');
+    this.load.image('art_elite_splitting_v1', 'assets/generated/zombies/elite-splitting-v1.png');
+    this.load.image('art_ultimate_elemental_cataclysm_v1', 'assets/generated/skills/ultimate-elemental-cataclysm-v1.png');
+    this.load.image('art_ultimate_infinite_barrage_v1', 'assets/generated/skills/ultimate-infinite-barrage-v1.png');
+    this.load.image('art_ultimate_orbital_command_v1', 'assets/generated/skills/ultimate-orbital-command-v1.png');
+    this.load.image('art_ultimate_eternal_fortress_v1', 'assets/generated/skills/ultimate-eternal-fortress-v1.png');
+  }
+
   create(): void {
     try {
       this.makeBullet();
@@ -42,19 +54,27 @@ export class BootScene extends Phaser.Scene {
 
   private makeMuzzleFlash(): void {
     const g = this.g();
-    g.fillStyle(0xffffff, 1).fillCircle(16, 16, 5);
-    g.fillStyle(0xffeb3b, 0.8).fillCircle(16, 16, 10);
-    g.fillStyle(0xff9800, 0.4).fillCircle(16, 16, 16);
-    g.generateTexture('muzzle_flash', 32, 32);
+    const points: Phaser.Math.Vector2[] = [];
+    for (let i = 0; i < 16; i++) {
+      const radius = i % 2 === 0 ? (i % 4 === 0 ? 30 : 23) : 9;
+      const angle = -Math.PI / 2 + (i * Math.PI) / 8;
+      points.push(new Phaser.Math.Vector2(32 + Math.cos(angle) * radius, 32 + Math.sin(angle) * radius));
+    }
+    g.fillStyle(0xff6d00, 0.22).fillCircle(32, 32, 31);
+    g.fillStyle(0xffa000, 0.65).fillPoints(points, true);
+    g.fillStyle(0xffea70, 0.95).fillCircle(32, 32, 13);
+    g.fillStyle(0xffffff, 1).fillCircle(32, 32, 6);
+    g.generateTexture('muzzle_flash', 64, 64);
     g.destroy();
   }
 
   private makeBossAura(): void {
     const g = this.g();
-    g.fillStyle(0x9455a8, 0.25).fillCircle(40, 12, 36);
-    g.lineStyle(3, 0xce93d8, 0.7).strokeCircle(40, 12, 30);
-    g.lineStyle(2, 0xff66ff, 0.4).strokeCircle(40, 12, 22);
-    g.generateTexture('boss_aura', 80, 24);
+    g.fillStyle(0x7c1d68, 0.14).fillEllipse(64, 32, 122, 54);
+    g.lineStyle(4, 0xff4fc3, 0.52).strokeEllipse(64, 32, 112, 43);
+    g.lineStyle(2, 0xc084fc, 0.8).strokeEllipse(64, 32, 88, 31);
+    g.lineStyle(2, 0xffffff, 0.35).arc(64, 32, 50, 3.5, 5.7);
+    g.generateTexture('boss_aura', 128, 64);
     g.destroy();
   }
 
@@ -68,20 +88,26 @@ export class BootScene extends Phaser.Scene {
 
   private makeShockwave(): void {
     const g = this.g();
-    g.lineStyle(3, 0xffffff, 0.9).strokeCircle(24, 24, 20);
-    g.lineStyle(2, 0xffd54a, 0.5).strokeCircle(24, 24, 14);
-    g.generateTexture('shockwave', 48, 48);
+    g.fillStyle(0xffd54a, 0.08).fillCircle(48, 48, 45);
+    g.lineStyle(5, 0xffffff, 0.88).strokeCircle(48, 48, 39);
+    g.lineStyle(3, 0xffd54a, 0.72).strokeCircle(48, 48, 31);
+    g.lineStyle(2, 0xff8f00, 0.45).strokeCircle(48, 48, 22);
+    g.generateTexture('shockwave', 96, 96);
     g.destroy();
   }
 
   private makeBossCrown(): void {
     const g = this.g();
-    g.fillStyle(0xffd54a, 1);
-    g.fillTriangle(10, 18, 4, 4, 16, 8);
-    g.fillTriangle(20, 18, 16, 2, 28, 8);
-    g.fillTriangle(30, 18, 24, 4, 36, 8);
-    g.fillStyle(0xe74c3c, 1).fillCircle(20, 8, 3);
-    g.generateTexture('boss_crown', 40, 20);
+    g.fillStyle(0x000000, 0.28).fillEllipse(32, 35, 52, 9);
+    g.fillStyle(0x6d3f00, 1).fillRoundedRect(6, 25, 52, 12, 4);
+    g.fillStyle(0xffb300, 1)
+      .fillTriangle(8, 28, 5, 5, 23, 24)
+      .fillTriangle(22, 28, 32, 1, 42, 28)
+      .fillTriangle(41, 28, 58, 5, 56, 29);
+    g.fillStyle(0xffe082, 1).fillRoundedRect(9, 25, 46, 7, 3);
+    g.fillStyle(0xff1744, 1).fillCircle(32, 24, 5);
+    g.fillStyle(0xffffff, 0.8).fillCircle(30, 22, 1.5);
+    g.generateTexture('boss_crown', 64, 42);
     g.destroy();
   }
 
@@ -91,9 +117,12 @@ export class BootScene extends Phaser.Scene {
 
   private makeBullet(): void {
     const g = this.g();
-    g.fillStyle(0xff9f1c, 1).fillEllipse(9, 14, 14, 26);
-    g.fillStyle(0xffe066, 1).fillEllipse(9, 10, 8, 12);
-    g.generateTexture('bullet', 18, 28);
+    g.fillStyle(0xff6d00, 0.18).fillEllipse(12, 18, 23, 35);
+    g.fillStyle(0x7a3211, 1).fillEllipse(12, 19, 14, 28);
+    g.fillStyle(0xffa726, 1).fillEllipse(12, 16, 13, 27);
+    g.fillStyle(0xfff3b0, 1).fillEllipse(10, 10, 6, 11);
+    g.fillStyle(0xffffff, 0.75).fillEllipse(9, 8, 3, 6);
+    g.generateTexture('bullet', 24, 36);
     g.destroy();
   }
 
@@ -104,40 +133,45 @@ export class BootScene extends Phaser.Scene {
     const w = size;
     const h = size * 1.25;
     const cx = w / 2;
-    // 地面阴影和不对称腿部，让小尺寸单位在尸潮中仍然有轮廓
-    g.fillStyle(0x000000, 0.28).fillEllipse(cx, h * 0.96, w * 0.62, w * 0.14);
-    g.fillStyle(bodyColor, 1);
-    g.fillRoundedRect(cx - w * 0.2, h * 0.72, w * 0.14, h * 0.24, w * 0.06);
-    g.fillRoundedRect(cx + w * 0.06, h * 0.74, w * 0.14, h * 0.22, w * 0.06);
-    // 双臂（前伸向下）
-    g.fillStyle(bodyColor, 1);
-    g.fillRoundedRect(cx - w * 0.46, h * 0.42, w * 0.2, h * 0.4, w * 0.09);
-    g.fillRoundedRect(cx + w * 0.26, h * 0.42, w * 0.2, h * 0.4, w * 0.09);
-    // 身体
-    g.fillStyle(bodyColor, 1);
-    g.fillRoundedRect(cx - w * 0.3, h * 0.34, w * 0.6, h * 0.52, w * 0.12);
-    // 破烂衣服阴影
-    g.fillStyle(0x000000, 0.18);
-    g.fillRect(cx - w * 0.3, h * 0.62, w * 0.6, h * 0.08);
-    // 头
-    g.fillStyle(headColor, 1);
-    g.fillCircle(cx, h * 0.22, w * 0.24);
-    // 眼睛
-    g.fillStyle(0x2d0a0a, 1);
-    g.fillCircle(cx - w * 0.1, h * 0.2, w * 0.05);
-    g.fillCircle(cx + w * 0.1, h * 0.2, w * 0.05);
-    g.fillStyle(0xff5252, 1);
-    g.fillCircle(cx - w * 0.1, h * 0.2, w * 0.022);
-    g.fillCircle(cx + w * 0.1, h * 0.2, w * 0.022);
-    // 嘴
-    g.fillStyle(0x2d0a0a, 1);
-    g.fillRect(cx - w * 0.08, h * 0.29, w * 0.16, w * 0.04);
-    // 眉骨、高光和破损衣角
-    g.fillStyle(0x000000, 0.24).fillEllipse(cx - w * 0.16, h * 0.16, w * 0.14, w * 0.05);
-    g.fillStyle(0xffffff, 0.14).fillRoundedRect(cx - w * 0.2, h * 0.4, w * 0.12, h * 0.17, 3);
-    g.fillStyle(0x000000, 0.25);
-    g.fillTriangle(cx - w * 0.28, h * 0.78, cx - w * 0.08, h * 0.78, cx - w * 0.2, h * 0.88);
-    g.fillTriangle(cx + w * 0.1, h * 0.78, cx + w * 0.28, h * 0.78, cx + w * 0.2, h * 0.88);
+    const outline = 0x10171a;
+    // 统一粗轮廓和脚底阴影，让高密度尸潮在手机尺寸下仍然可读。
+    g.fillStyle(0x000000, 0.34).fillEllipse(cx, h * 0.94, w * 0.68, w * 0.16);
+    g.fillStyle(outline, 1)
+      .fillRoundedRect(cx - w * 0.23, h * 0.68, w * 0.2, h * 0.27, w * 0.07)
+      .fillRoundedRect(cx + w * 0.03, h * 0.7, w * 0.2, h * 0.25, w * 0.07);
+    g.fillStyle(bodyColor, 1)
+      .fillRoundedRect(cx - w * 0.19, h * 0.69, w * 0.13, h * 0.23, w * 0.05)
+      .fillRoundedRect(cx + w * 0.07, h * 0.71, w * 0.13, h * 0.21, w * 0.05);
+    g.fillStyle(outline, 1)
+      .fillRoundedRect(cx - w * 0.49, h * 0.39, w * 0.24, h * 0.42, w * 0.1)
+      .fillRoundedRect(cx + w * 0.25, h * 0.39, w * 0.24, h * 0.42, w * 0.1)
+      .fillRoundedRect(cx - w * 0.34, h * 0.3, w * 0.68, h * 0.58, w * 0.14);
+    g.fillStyle(bodyColor, 1)
+      .fillRoundedRect(cx - w * 0.44, h * 0.42, w * 0.17, h * 0.35, w * 0.07)
+      .fillRoundedRect(cx + w * 0.27, h * 0.42, w * 0.17, h * 0.35, w * 0.07)
+      .fillRoundedRect(cx - w * 0.29, h * 0.34, w * 0.58, h * 0.5, w * 0.1);
+    g.fillStyle(0x000000, 0.22).fillRect(cx - w * 0.29, h * 0.6, w * 0.58, h * 0.1);
+    g.fillStyle(0xffffff, 0.12).fillRoundedRect(cx - w * 0.22, h * 0.39, w * 0.1, h * 0.19, 3);
+    g.fillStyle(outline, 1).fillCircle(cx, h * 0.21, w * 0.285);
+    g.fillStyle(headColor, 1).fillCircle(cx, h * 0.21, w * 0.235);
+    g.fillStyle(0xffffff, 0.13).fillEllipse(cx - w * 0.09, h * 0.13, w * 0.12, w * 0.07);
+    g.fillStyle(0x251011, 1)
+      .fillCircle(cx - w * 0.1, h * 0.2, w * 0.055)
+      .fillCircle(cx + w * 0.1, h * 0.2, w * 0.055);
+    g.fillStyle(0xff5b57, 1)
+      .fillCircle(cx - w * 0.1, h * 0.2, w * 0.026)
+      .fillCircle(cx + w * 0.1, h * 0.2, w * 0.026);
+    g.fillStyle(0xffd4a3, 0.8)
+      .fillCircle(cx - w * 0.092, h * 0.192, w * 0.01)
+      .fillCircle(cx + w * 0.108, h * 0.192, w * 0.01);
+    g.fillStyle(0x251011, 1).fillRoundedRect(cx - w * 0.1, h * 0.275, w * 0.2, w * 0.055, 2);
+    g.fillStyle(0xe7d7ba, 0.8)
+      .fillRect(cx - w * 0.065, h * 0.278, w * 0.025, w * 0.04)
+      .fillRect(cx + w * 0.035, h * 0.278, w * 0.025, w * 0.04);
+    g.fillStyle(0x000000, 0.28).fillEllipse(cx - w * 0.15, h * 0.145, w * 0.17, w * 0.055);
+    g.fillStyle(0x000000, 0.3)
+      .fillTriangle(cx - w * 0.28, h * 0.75, cx - w * 0.07, h * 0.75, cx - w * 0.19, h * 0.87)
+      .fillTriangle(cx + w * 0.08, h * 0.75, cx + w * 0.29, h * 0.75, cx + w * 0.19, h * 0.87);
     // 额外装饰
     if (extras) extras(g, cx, h, w);
     g.generateTexture(key, w, h);
@@ -246,37 +280,49 @@ export class BootScene extends Phaser.Scene {
 
   private makeCannon(): void {
     let g = this.g();
-    g.fillStyle(0x263238, 1).fillRoundedRect(0, 18, 120, 46, 12);
-    g.fillStyle(0x455a64, 1).fillRoundedRect(6, 22, 108, 36, 10);
-    g.fillStyle(0x607d8b, 1).fillCircle(60, 26, 34);
-    g.fillStyle(0x263238, 1).fillCircle(60, 26, 25);
-    g.lineStyle(3, 0x90a4ae, 0.7).strokeCircle(60, 26, 19);
-    g.fillStyle(0xffd54a, 0.75).fillCircle(60, 26, 5);
-    g.generateTexture('cannon_base', 120, 64);
+    g.fillStyle(0x000000, 0.36).fillEllipse(60, 65, 112, 14);
+    g.fillStyle(0x11191f, 1).fillRoundedRect(0, 25, 120, 39, 11);
+    g.fillStyle(0x2b3e49, 1).fillRoundedRect(5, 20, 110, 40, 10);
+    g.fillStyle(0x4e6877, 1).fillRoundedRect(10, 23, 100, 30, 8);
+    g.fillStyle(0x1d2a31, 1).fillCircle(60, 25, 34);
+    g.fillStyle(0x78909c, 1).fillCircle(60, 25, 29);
+    g.fillStyle(0x26343d, 1).fillCircle(60, 25, 23);
+    g.lineStyle(4, 0xb0c7d3, 0.8).arc(60, 25, 26, 3.45, 5.85);
+    g.lineStyle(3, 0x0e161b, 0.9).strokeCircle(60, 25, 17);
+    g.fillStyle(0xffb300, 0.28).fillCircle(60, 25, 13);
+    g.fillStyle(0xffca28, 1).fillCircle(60, 25, 7);
+    g.fillStyle(0xffffff, 0.78).fillCircle(57, 22, 2.5);
+    for (const x of [14, 106]) g.fillStyle(0xa8bec9, 0.8).fillCircle(x, 38, 3);
+    g.generateTexture('cannon_base', 120, 72);
     g.destroy();
 
     g = this.g();
-    g.fillStyle(0x263238, 1).fillRoundedRect(8, 0, 24, 78, 8);
-    g.fillStyle(0x607d8b, 1).fillRoundedRect(11, 4, 18, 70, 6);
-    g.fillStyle(0x90a4ae, 1).fillRoundedRect(4, 0, 32, 14, 5);
+    g.fillStyle(0x11191f, 1).fillRoundedRect(6, 2, 28, 83, 8);
+    g.fillStyle(0x4e6877, 1).fillRoundedRect(10, 5, 20, 76, 6);
+    g.fillStyle(0x91a8b5, 0.55).fillRoundedRect(12, 8, 6, 66, 3);
+    g.fillStyle(0x17242c, 0.9).fillRect(9, 47, 22, 8);
+    g.fillStyle(0xb5c8d2, 1).fillRoundedRect(2, 0, 36, 16, 5);
+    g.fillStyle(0x26343d, 1).fillRoundedRect(6, 3, 28, 9, 3);
+    g.fillStyle(0xffffff, 0.3).fillRect(9, 3, 15, 2);
     g.generateTexture('cannon_barrel', 40, 100);
     g.destroy();
   }
 
   private makeWall(): void {
     const g = this.g();
-    g.fillStyle(0x6d4c41, 1).fillRect(0, 0, 120, 48);
-    g.fillStyle(0x9e8277, 1).fillRect(0, 0, 120, 5);
-    g.fillStyle(0x795548, 1);
-    for (let row = 0; row < 2; row++) {
-      const off = row % 2 === 0 ? 0 : 30;
-      for (let x = -30; x < 120; x += 60) {
-        g.fillRect(x + off + 2, row * 24 + 2, 56, 20);
-      }
+    g.fillStyle(0x11191f, 1).fillRect(0, 0, 120, 48);
+    g.fillStyle(0x3f5059, 1).fillRect(0, 4, 120, 40);
+    g.fillStyle(0x26343c, 1);
+    for (let x = -16; x < 120; x += 40) {
+      g.fillTriangle(x, 44, x + 21, 4, x + 42, 44);
     }
-    g.lineStyle(2, 0x4e342e, 0.8).lineBetween(0, 23, 120, 23);
-    g.fillStyle(0xd7ccc8, 0.2).fillRect(8, 7, 3, 12);
-    g.fillStyle(0x2f1d1b, 0.55).fillRect(84, 29, 24, 3);
+    g.fillStyle(0x66808c, 0.62).fillRect(0, 4, 120, 6);
+    g.fillStyle(0x0c1419, 0.72).fillRect(0, 40, 120, 8);
+    g.lineStyle(2, 0x92aab5, 0.55).lineBetween(0, 4, 120, 4);
+    g.lineStyle(2, 0x10181d, 0.85).lineBetween(0, 22, 120, 22);
+    for (const x of [10, 50, 90]) {
+      g.fillStyle(0xc6d4da, 0.85).fillCircle(x, 14, 2.5).fillCircle(x + 20, 34, 2.5);
+    }
     g.generateTexture('wall_tile', 120, 48);
     g.destroy();
   }
@@ -638,13 +684,35 @@ export class BootScene extends Phaser.Scene {
 
   private makeParticles(): void {
     let g = this.g();
-    g.fillStyle(0x8bc34a, 1).fillCircle(5, 5, 5);
-    g.generateTexture('blood', 10, 10);
+    g.fillStyle(0x263d20, 0.7).fillCircle(7, 7, 7);
+    g.fillStyle(0x8bc34a, 1).fillCircle(7, 7, 5);
+    g.fillStyle(0xdcedc8, 0.7).fillCircle(5, 5, 2);
+    g.generateTexture('blood', 14, 14);
     g.destroy();
 
     g = this.g();
     g.fillStyle(0xffffff, 1).fillRect(0, 0, 8, 8);
     g.generateTexture('pixel', 8, 8);
+    g.destroy();
+
+    g = this.g();
+    g.fillStyle(0xff6d00, 0.12).fillCircle(12, 12, 12);
+    g.fillStyle(0xffca28, 0.75).fillCircle(12, 12, 5);
+    g.fillStyle(0xffffff, 1).fillCircle(11, 10, 2);
+    g.generateTexture('ambient_mote', 24, 24);
+    g.destroy();
+
+    g = this.g();
+    g.fillStyle(0xffffff, 1).fillTriangle(2, 8, 18, 4, 18, 12);
+    g.fillStyle(0xffca28, 0.8).fillTriangle(8, 8, 22, 6, 22, 10);
+    g.generateTexture('impact_spark', 24, 16);
+    g.destroy();
+
+    g = this.g();
+    g.fillStyle(0x263238, 0.12).fillCircle(24, 24, 23);
+    g.fillStyle(0x607d8b, 0.22).fillCircle(24, 24, 16);
+    g.fillStyle(0xb0bec5, 0.28).fillCircle(20, 19, 9);
+    g.generateTexture('smoke_puff', 48, 48);
     g.destroy();
   }
 
@@ -676,10 +744,15 @@ export class BootScene extends Phaser.Scene {
 
   private makeExplosionEffect(): void {
     const g = this.g();
-    g.fillStyle(0xff6d00, 1).fillCircle(16, 16, 14);
-    g.fillStyle(0xffeb3b, 0.8).fillCircle(16, 16, 8);
-    g.fillStyle(0xffffff, 0.5).fillCircle(16, 16, 3);
-    g.generateTexture('explosion_particle', 32, 32);
+    g.fillStyle(0xff3d00, 0.25).fillCircle(18, 18, 17);
+    g.fillStyle(0xff6d00, 0.95)
+      .fillTriangle(18, 0, 23, 13, 34, 8)
+      .fillTriangle(36, 18, 23, 23, 29, 35)
+      .fillTriangle(18, 36, 13, 23, 1, 29)
+      .fillTriangle(0, 18, 13, 13, 7, 2);
+    g.fillStyle(0xffd740, 1).fillCircle(18, 18, 10);
+    g.fillStyle(0xffffff, 0.9).fillCircle(16, 15, 4);
+    g.generateTexture('explosion_particle', 36, 36);
     g.destroy();
   }
 

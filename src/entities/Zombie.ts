@@ -19,6 +19,15 @@ import {
   SIPHON_HEAL_RATIO,
   RANGED_ZOMBIE_TYPES,
 } from '../data/balance';
+import { ELITE_AFFIXES, type EliteAffix } from '../data/combat';
+
+const BOSS_ART_TEXTURE = 'art_zombie_boss_v1';
+const ELITE_ART_TEXTURES: Record<EliteAffix, string> = {
+  swift: 'art_elite_swift_v1',
+  armored: 'art_elite_armored_v1',
+  regenerating: 'art_elite_regenerating_v1',
+  splitting: 'art_elite_splitting_v1',
+};
 
 /**
  * 僵尸（对象池成员）：支持 11 种类型，每种有独特行为
@@ -31,6 +40,9 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
   wallDamage = 0;
   coinValue = 0;
   baseSpeed = 0;
+  eliteAffix: EliteAffix | null = null;
+  lastDamageTaken = 0;
+  bossPhase = 1;
 
   // 各类行为计时器
   private attackTimer = 0;
@@ -46,6 +58,12 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
   private burrowTimer = 0;
   private isBurrowed = false;
   private damageReduction = 0;
+  private eliteDamageReduction = 0;
+  private regenerationCooldown = 0;
+  private knockbackTimer = 0;
+  private usesGeneratedArt = false;
+  private visualScale = 1;
+  private hudScale = 1;
 
   private hpBar!: Phaser.GameObjects.Graphics;
   private shieldBar!: Phaser.GameObjects.Graphics;
@@ -53,6 +71,9 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
   private bossAura?: Phaser.GameObjects.Image;
   /** Boss 头顶王冠 */
   private bossCrown?: Phaser.GameObjects.Image;
+  /** 精英脚下的战术光环，和普通单位形成清晰层级。 */
+  private eliteAura?: Phaser.GameObjects.Image;
+  private eliteMark?: Phaser.GameObjects.Text;
 
   /** 触墙攻击回调 */
   onAttackWall: (dmg: number) => void = () => {};
@@ -66,6 +87,8 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
   onExplode?: (x: number, y: number) => void;
   /** 掘地者破土回调 */
   onSurface?: (zombie: Zombie) => void;
+  /** 首领半血狂暴阶段回调 */
+  onBossPhase?: (zombie: Zombie, phase: number) => void;
 
   /** 死亡动画播放中 */
   dying = false;
@@ -74,14 +97,29 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     super(scene, x, y, 'zombie_normal');
   }
 
-  spawn(type: ZombieTypeKey, x: number, y: number, hpScale: number, speedScale: number): void {
+  spawn(
+    type: ZombieTypeKey,
+    x: number,
+    y: number,
+    hpScale: number,
+    speedScale: number,
+    eliteAffix: EliteAffix | null = null,
+  ): void {
     const stats = ZOMBIE_TYPES[type];
     this.zType = type;
-    this.maxHp = Math.round(stats.hp * hpScale);
+    this.eliteAffix = eliteAffix;
+    const hpMultiplier = eliteAffix === 'armored' ? 2.35
+      : eliteAffix === 'regenerating' ? 1.65
+        : eliteAffix === 'splitting' ? 1.4
+          : eliteAffix === 'swift' ? 1.15 : 1;
+    const speedMultiplier = eliteAffix === 'swift' ? 1.72
+      : eliteAffix === 'armored' ? 0.78
+        : eliteAffix === 'splitting' ? 1.08 : 1;
+    this.maxHp = Math.round(stats.hp * hpScale * hpMultiplier);
     this.hp = this.maxHp;
     this.wallDamage = stats.damage;
-    this.coinValue = stats.coin;
-    this.baseSpeed = stats.speed * speedScale;
+    this.coinValue = Math.round(stats.coin * (eliteAffix === 'armored' || eliteAffix === 'regenerating' ? 3 : eliteAffix ? 2 : 1));
+    this.baseSpeed = stats.speed * speedScale * speedMultiplier;
     this.shield = type === 'shield' ? SHIELD_MAX : 0;
     this.attackTimer = 0;
     this.summonTimer = 0;
@@ -96,10 +134,24 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     this.burrowTimer = type === 'burrower' ? BURROW_DURATION : 0;
     this.isBurrowed = type === 'burrower';
     this.damageReduction = 0;
+    this.eliteDamageReduction = eliteAffix === 'armored' ? 0.34 : 0;
+    this.regenerationCooldown = 0;
+    this.knockbackTimer = 0;
+    this.lastDamageTaken = 0;
+    this.bossPhase = 1;
 
     this.enableBody(true, x, y, true, true);
-    this.setTexture(stats.texture);
-    this.setScale(stats.scale, this.isBurrowed ? stats.scale * 0.42 : stats.scale);
+    const generatedTexture = type === 'boss'
+      ? BOSS_ART_TEXTURE
+      : eliteAffix ? ELITE_ART_TEXTURES[eliteAffix] : null;
+    const visualTexture = generatedTexture && this.scene.textures.exists(generatedTexture)
+      ? generatedTexture
+      : stats.texture;
+    this.usesGeneratedArt = visualTexture !== stats.texture;
+    this.setTexture(visualTexture);
+    this.visualScale = this.usesGeneratedArt ? (80 * stats.scale) / this.height : stats.scale;
+    this.hudScale = stats.scale;
+    this.setScale(this.visualScale, this.isBurrowed ? this.visualScale * 0.42 : this.visualScale);
     this.setRotation(0);
     this.clearTint();
     this.setAlpha(this.isBurrowed ? 0.42 : 1);
@@ -113,19 +165,48 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     this.hpBar.setVisible(true).setDepth(6);
     this.shieldBar.setVisible(type === 'shield').setDepth(6);
 
+    if (eliteAffix) {
+      const affix = ELITE_AFFIXES[eliteAffix];
+      if (!this.eliteAura) {
+        this.eliteAura = this.scene.add.image(0, 0, 'boss_aura').setDepth(4).setBlendMode(Phaser.BlendModes.ADD);
+      }
+      this.eliteAura
+        .setVisible(true)
+        .setPosition(this.x, this.y + this.displayHeight * 0.28)
+        .setScale(0.5 * stats.scale)
+        .setTint(affix.color)
+        .setAlpha(0.34);
+      if (!this.eliteMark) {
+        this.eliteMark = this.scene.add.text(0, 0, '', {
+          fontFamily: '"PingFang SC", "Microsoft YaHei", sans-serif',
+          fontSize: '18px', fontStyle: 'bold', color: '#ffffff',
+          stroke: '#101820', strokeThickness: 4,
+        }).setOrigin(0.5).setDepth(8);
+      }
+      this.eliteMark.setText(affix.shortLabel).setColor(`#${affix.color.toString(16).padStart(6, '0')}`).setVisible(true);
+      this.restoreVisualTint();
+    } else {
+      this.eliteAura?.setVisible(false);
+      this.eliteMark?.setVisible(false);
+    }
+
     // Boss 光环 + 王冠
     if (type === 'boss') {
       if (!this.bossAura) {
         this.bossAura = this.scene.add.image(this.x, this.y + 30, 'boss_aura').setDepth(4);
       }
-      this.bossAura.setVisible(true).setPosition(this.x, this.y + 30).setScale(2.5);
+      this.bossAura.setVisible(true).setPosition(this.x, this.y + this.displayHeight * 0.3).setScale(1.25);
       this.scene.tweens.add({
         targets: this.bossAura, alpha: 0.4, duration: 800, yoyo: true, repeat: -1, ease: 'Sine.InOut',
       });
-      if (!this.bossCrown) {
-        this.bossCrown = this.scene.add.image(this.x, this.y - 50, 'boss_crown').setDepth(7);
+      if (!this.usesGeneratedArt) {
+        if (!this.bossCrown) {
+          this.bossCrown = this.scene.add.image(this.x, this.y - 50, 'boss_crown').setDepth(7);
+        }
+        this.bossCrown.setVisible(true).setPosition(this.x, this.y - this.displayHeight * 0.5);
+      } else {
+        this.bossCrown?.setVisible(false);
       }
-      this.bossCrown.setVisible(true).setPosition(this.x, this.y - 50);
     } else {
       this.bossAura?.setVisible(false);
       this.bossCrown?.setVisible(false);
@@ -136,7 +217,7 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
 
   private drawHpBar(): void {
     if (this.isBurrowed) { this.hpBar.clear(); return; }
-    const w = 56 * this.scaleX;
+    const w = 56 * this.hudScale;
     const ratio = Phaser.Math.Clamp(this.hp / this.maxHp, 0, 1);
     this.hpBar.clear();
     if (ratio >= 1 || this.hp <= 0) return;
@@ -149,7 +230,7 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
 
   private drawShieldBar(): void {
     if (this.shield <= 0) { this.shieldBar.clear(); return; }
-    const w = 56 * this.scaleX;
+    const w = 56 * this.hudScale;
     const ratio = Phaser.Math.Clamp(this.shield / SHIELD_MAX, 0, 1);
     const x = this.x - w / 2;
     const y = this.y - this.displayHeight / 2 - 12;
@@ -160,8 +241,11 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
 
   /** 返回 true 表示死亡 */
   takeDamage(dmg: number): boolean {
+    this.lastDamageTaken = 0;
     if (this.hp <= 0 || !this.isGhostVisible || this.isBurrowed || this.dying) return false;
-    dmg *= 1 - this.damageReduction;
+    dmg *= 1 - Phaser.Math.Clamp(this.damageReduction + this.eliteDamageReduction, 0, 0.78);
+    this.lastDamageTaken = Math.min(this.hp + this.shield, Math.max(0, dmg));
+    if (this.eliteAffix === 'regenerating') this.regenerationCooldown = 3;
 
     // 护盾优先吸收
     if (this.shield > 0) {
@@ -177,6 +261,13 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     }
 
     this.hp -= dmg;
+    if (this.zType === 'boss' && this.bossPhase === 1 && this.hp > 0 && this.hp / this.maxHp <= 0.5) {
+      this.bossPhase = 2;
+      this.baseSpeed *= 1.62;
+      const body = this.body as Phaser.Physics.Arcade.Body;
+      if (body.velocity.y > 0) body.setVelocityY(this.baseSpeed * this.slowMultiplier);
+      this.onBossPhase?.(this, 2);
+    }
     this.flashHit();
     this.drawHpBar();
     return this.hp <= 0;
@@ -195,6 +286,14 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     this.setTint(0x9be7ff);
   }
 
+  applyKnockback(distance: number): void {
+    if (!this.active || this.hp <= 0 || this.dying || this.isBurrowed) return;
+    this.y = Math.max(this.displayHeight / 2 + 12, this.y - Math.max(0, distance));
+    this.attackTimer = 0;
+    this.knockbackTimer = 0.14;
+    this.setVelocity(0, -Math.max(150, this.baseSpeed * 2.4));
+  }
+
   setDamageReduction(value: number): void {
     this.damageReduction = Phaser.Math.Clamp(value, 0, 0.75);
   }
@@ -210,8 +309,7 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
   private surfaceFromBurrow(): void {
     this.isBurrowed = false;
     this.burrowTimer = 0;
-    const stats = ZOMBIE_TYPES[this.zType];
-    this.setScale(stats.scale).setAlpha(1);
+    this.setScale(this.visualScale).setAlpha(1);
     this.setVelocity(0, this.baseSpeed * this.slowMultiplier);
     this.drawHpBar();
     this.onSurface?.(this);
@@ -221,10 +319,19 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     this.setTintFill(0xffffff);
     this.scene.time.delayedCall(60, () => {
       if (this.active) {
-        if (this.slowTimer > 0) this.setTint(0x9be7ff);
-        else this.clearTint();
+        this.restoreVisualTint();
       }
     });
+  }
+
+  private restoreVisualTint(): void {
+    if (this.slowTimer > 0) {
+      this.setTint(0x9be7ff);
+    } else if (this.eliteAffix && !this.usesGeneratedArt) {
+      this.setTint(ELITE_AFFIXES[this.eliteAffix].color);
+    } else {
+      this.clearTint();
+    }
   }
 
   recycle(): void {
@@ -233,10 +340,21 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     this.dying = false;
     this.isBurrowed = false;
     this.damageReduction = 0;
+    this.eliteDamageReduction = 0;
+    this.eliteAffix = null;
+    this.regenerationCooldown = 0;
+    this.knockbackTimer = 0;
+    this.lastDamageTaken = 0;
+    this.bossPhase = 1;
+    this.usesGeneratedArt = false;
+    this.visualScale = 1;
+    this.hudScale = 1;
     if (this.hpBar) this.hpBar.clear().setVisible(false);
     if (this.shieldBar) this.shieldBar.clear().setVisible(false);
     this.bossAura?.setVisible(false);
     this.bossCrown?.setVisible(false);
+    this.eliteAura?.setVisible(false);
+    this.eliteMark?.setVisible(false);
     this.disableBody(true, true);
   }
 
@@ -283,6 +401,26 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     const body = this.body as Phaser.Physics.Arcade.Body;
     const bottom = this.y + this.displayHeight / 2;
 
+    if (!this.isBurrowed && this.zType !== 'leaper' && bottom < WALL_Y) {
+      const sway = this.zType === 'boss' ? 0.025 : 0.045;
+      this.setRotation(Math.sin(time * 0.006 + this.x * 0.025) * sway);
+    }
+
+    if (this.knockbackTimer > 0) {
+      this.knockbackTimer -= dt;
+      if (this.knockbackTimer <= 0) this.setVelocity(0, this.baseSpeed * this.slowMultiplier);
+      this.drawHpBar();
+      if (this.shield > 0) this.drawShieldBar();
+      return;
+    }
+
+    if (this.eliteAffix === 'regenerating' && this.hp > 0 && this.hp < this.maxHp) {
+      this.regenerationCooldown -= dt;
+      if (this.regenerationCooldown <= 0) {
+        this.hp = Math.min(this.maxHp, this.hp + this.maxHp * 0.035 * dt);
+      }
+    }
+
     if (this.isBurrowed && this.hp > 0) {
       this.burrowTimer -= dt;
       this.setVelocity(0, this.baseSpeed * 2.15 * this.slowMultiplier);
@@ -294,7 +432,7 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
       this.slowTimer -= dt;
       if (this.slowTimer <= 0) {
         this.slowMultiplier = 1;
-        this.clearTint();
+        this.restoreVisualTint();
         if (bottom < WALL_Y && body.velocity.y > 0 && !RANGED_ZOMBIE_TYPES.has(this.zType)) {
           this.setVelocity(0, this.baseSpeed);
         }
@@ -381,9 +519,18 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     // ── Boss 召唤 ──
     if (this.zType === 'boss' && this.hp > 0) {
       this.summonTimer += dt;
-      if (this.summonTimer >= BOSS_SUMMON_INTERVAL) {
+      const summonInterval = BOSS_SUMMON_INTERVAL * (this.bossPhase === 2 ? 0.48 : 1);
+      if (this.summonTimer >= summonInterval) {
         this.summonTimer = 0;
-        this.onSummon(this.x, this.y + this.displayHeight / 2 + 20);
+        this.onSummon(this.x, this.y + this.displayHeight / 2 + 20, this.bossPhase === 2 ? 'fast' : undefined);
+      }
+      if (this.bossPhase === 2) {
+        this.spitTimer += dt;
+        if (this.spitTimer >= 2.4) {
+          this.spitTimer = 0;
+          const angle = Phaser.Math.Angle.Between(this.x, this.y, this.x, WALL_Y);
+          this.onSpit(this.x, this.y, angle, this.wallDamage * 0.55);
+        }
       }
     }
 
@@ -413,8 +560,19 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     if (this.shield > 0) this.drawShieldBar();
 
     // Boss 光环/王冠跟随移动
-    if (this.bossAura && this.bossAura.visible) this.bossAura.setPosition(this.x, this.y + 30);
-    if (this.bossCrown && this.bossCrown.visible) this.bossCrown.setPosition(this.x, this.y - 50);
+    if (this.bossAura && this.bossAura.visible) {
+      this.bossAura.setPosition(this.x, this.y + this.displayHeight * 0.3).setRotation(-this.rotation * 0.35);
+    }
+    if (this.bossCrown && this.bossCrown.visible) {
+      this.bossCrown.setPosition(this.x, this.y - this.displayHeight * 0.5).setRotation(this.rotation * 0.6);
+    }
+    if (this.eliteAura?.visible) {
+      this.eliteAura.setPosition(this.x, this.y + this.displayHeight * 0.28).setRotation(time * 0.00035);
+      this.eliteAura.setAlpha(0.26 + Math.sin(time * 0.005 + this.x) * 0.09);
+    }
+    if (this.eliteMark?.visible) {
+      this.eliteMark.setPosition(this.x, this.y - this.displayHeight / 2 - 24);
+    }
   }
 
   /** 治愈者治疗附近僵尸（由 GameScene 调用） */

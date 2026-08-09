@@ -45,9 +45,12 @@ export function createButton(
   const bg = scene.add.graphics();
   const draw = (c: number) => {
     bg.clear();
-    bg.fillStyle(0x000000, 0.35).fillRoundedRect(-w / 2 + 3, -h / 2 + 5, w, h, 18);
-    bg.fillStyle(c, 1).fillRoundedRect(-w / 2, -h / 2, w, h, 18);
-    bg.fillStyle(0xffffff, 0.12).fillRoundedRect(-w / 2, -h / 2, w, h / 2, { tl: 18, tr: 18, bl: 0, br: 0 });
+    bg.fillStyle(0x000000, 0.42).fillRoundedRect(-w / 2 + 4, -h / 2 + 7, w, h, 10);
+    bg.fillStyle(c, 1).fillRoundedRect(-w / 2, -h / 2, w, h, 10);
+    bg.fillStyle(0xffffff, 0.11).fillRoundedRect(-w / 2 + 2, -h / 2 + 2, w - 4, h * 0.46, { tl: 8, tr: 8, bl: 2, br: 2 });
+    bg.fillStyle(0x000000, 0.14).fillRoundedRect(-w / 2 + 2, h / 2 - 9, w - 4, 7, { tl: 2, tr: 2, bl: 8, br: 8 });
+    bg.lineStyle(1, 0xffffff, 0.18).strokeRoundedRect(-w / 2 + 1, -h / 2 + 1, w - 2, h - 2, 9);
+    bg.fillStyle(0xffffff, 0.72).fillRoundedRect(-w / 2 + 8, -h / 2 + 8, 4, h - 16, 2);
   };
   draw(color);
 
@@ -57,6 +60,8 @@ export function createButton(
       fontSize: `${opts.fontSize ?? 32}px`,
       fontStyle: 'bold',
       color: '#ffffff',
+      stroke: '#081117',
+      strokeThickness: 2,
     })
     .setOrigin(0.5);
 
@@ -70,6 +75,9 @@ export function createButton(
       pressed = true;
       draw(colorDown);
       container.setScale(0.96);
+    });
+    container.on('pointerover', () => {
+      if (!pressed) container.setScale(1.015);
     });
     container.on('pointerup', () => {
       draw(color);

@@ -8,3 +8,8 @@ android/.gradle/
 android/local.properties
 android/.idea/
 android/app/release/
+
+# Local generation sources and visual QA artifacts.
+output/
+tmp/
+pics/qa/

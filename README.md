@@ -2,10 +2,12 @@
 
 类"向僵尸开炮"的竖屏塔防射击 H5 小游戏：炮台自动索敌开火（按住屏幕可手动瞄准），僵尸成波推进攻击基地墙；击杀掉金币，波次间三选一局内强化，通关解锁关卡、赚金币做永久养成。
 
+[下载最新版 Android APK](https://github.com/tjujingzong/zombie-cannon/releases/latest) · [在线游玩](https://tjujingzong.github.io/zombie-cannon/)
+
 - 技术栈：Phaser 3 + TypeScript + Vite
 - 部署：GitHub Pages（自动 CI）
 - 安卓：Capacitor 打包 WebView 应用
-- 美术/音效：全部程序化生成（零外部资源），可随时替换正式素材
+- 美术/音效：统一的末日军械视觉与程序化音频，角色/技能纹理保留正式位图替换能力
 
 ## 本地开发
 
@@ -20,13 +22,14 @@ npm run build      # 类型检查 + 产物输出到 dist/
 | 模块 | 说明 |
 | --- | --- |
 | 关卡引擎 | 50 关（`src/data/levels.ts`）：1~10 关手工教学递进；11~50 关由确定性 PRNG 程序化生成，难度持续上升。每 5 关一个 Boss 关（5/10/15/.../50），每 10 关一个大章节，biome 循环 |
-| 敌人 | 11 种僵尸：普通 / 快速 / 肉盾 / Boss（周期召唤）/ 喷射者 / 自爆者 / 治愈者 / 护盾者 / 幽灵 / 狂暴者 / 召唤者 |
+| 敌人 | 18 种僵尸，覆盖远程、治疗、召唤、潜地、分裂、减伤、吸血等行为，并带四种精英词缀与首领二阶段 |
 | 图鉴 | 主菜单「图鉴」入口：僵尸图鉴（行为/弱点/对策/威胁等级）、技能图鉴、组合技、战术指南（`src/scenes/CodexScene.ts`） |
-| 局内升级 | 波次间三选一：火力、攻速、多重、穿透、暴击、修墙…… + 12 种组合技 |
-| 局外养成 | 金币永久升级：攻击、攻速、墙体上限、金币加成 |
+| 局内升级 | 24 个技能、17 个组合技、四条终极流派，以及战前选技、波间风险契约、三种开局挑战契约、过载与随机战场事件 |
+| 局外养成 | 六项永久强化、背景/装饰/辅助炮台、27 种行为装备组合，以及追猎/磁暴/急救三协议的 R-7 战术伙伴 |
+| 长期模式 | 上海时区每日挑战、种子化末日无尽、每周行动任务、军需奖励与八项终身成就 |
 | 音效系统 | Web Audio API 程序化合成（`src/systems/AudioSystem.ts`）：分层 BGM（普通/Boss/菜单三种主题）+ 18 种 SFX。首次交互自动解锁，菜单/HUD 提供静音按钮 |
 | 视觉特效 | 子弹拖尾、枪口闪光、击杀冲击波、Boss 光环王冠入场、暴击顿帧、低血红屏、10 种 biome 背景配色、氛围灰烬粒子 |
-| 存档 | localStorage（金币、关卡星级、养成等级、静音偏好），安卓 WebView 同样生效 |
+| 存档 | localStorage v5，保存进度、构筑、军械、行为装备、伙伴协议、挑战契约、每日/无尽/行动档案数据，并支持菜单导入/导出 |
 
 ## 部署到 GitHub Pages
 
@@ -43,24 +46,61 @@ npm run build      # 类型检查 + 产物输出到 dist/
 
 ## 打包安卓应用（Capacitor）
 
-首次生成安卓工程（本仓库已包含 `android/` 则跳过第 1 步）：
+### 从 GitHub 下载
+
+正式版本发布在 [GitHub Releases](https://github.com/tjujingzong/zombie-cannon/releases/latest)，下载名称类似
+`zombie-cannon-v0.1.0.apk` 的文件后即可安装。首次侧载时，Android 会要求允许浏览器或文件管理器“安装未知应用”。
+
+每次推送 `main` 时，`Build Android APK` 工作流还会生成一个保留 30 天的测试 APK，可在对应 Actions 运行的
+Artifacts 区下载；带 `v*` 的 Git 标签则会构建签名正式版，并自动附加到 GitHub Release。
+
+### 本地构建测试 APK
+
+仓库已经包含 `android/` 原生工程：
 
 ```bash
-npx cap add android      # 1. 生成 android/ 原生工程
-npm run android:sync     # 2. 构建 web 产物并同步进安卓工程
-npm run android:open     # 3. 用 Android Studio 打开
+npm ci
+npm run android:sync
+cd android
+./gradlew assembleDebug       # macOS / Linux
+./gradlew.bat assembleDebug   # Windows
 ```
 
-在 Android Studio 中：
+APK 输出到 `android/app/build/outputs/apk/debug/app-debug.apk`。也可运行 `npm run android:open`，在 Android Studio
+中连接真机调试。Web 代码有变化时要先重新执行 `npm run android:sync`。
 
-1. 等待 Gradle 同步完成（首次需下载依赖）。
-2. 菜单 Build -> Build Bundle(s) / APK(s) -> Build APK(s) 生成调试版 APK。
-3. 正式发布用 Build -> Generate Signed Bundle / APK 并配置签名。
+### 配置 GitHub 正式签名
 
-建议在 `android/app/src/main/AndroidManifest.xml` 的 `<activity>` 上加
-`android:screenOrientation="portrait"` 锁定竖屏。
+先在本机创建一次长期保存的发布密钥：
 
-改动 web 代码后重新执行 `npm run android:sync` 即可同步到安卓工程。
+```bash
+keytool -genkeypair -v -keystore zombie-cannon-release.jks -alias zombie-cannon \
+  -keyalg RSA -keysize 2048 -validity 10000
+```
+
+在仓库 `Settings -> Secrets and variables -> Actions` 添加：
+
+| Secret | 内容 |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | `.jks` 文件的 Base64 文本 |
+| `ANDROID_KEYSTORE_PASSWORD` | 密钥库密码 |
+| `ANDROID_KEY_ALIAS` | 例如 `zombie-cannon` |
+| `ANDROID_KEY_PASSWORD` | 密钥密码 |
+
+Windows PowerShell 可用下面的命令取得 Base64 文本：
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes('zombie-cannon-release.jks')) | Set-Clipboard
+```
+
+四项 Secret 配好后，用版本标签触发正式发布：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+发布密钥一旦用于首个正式版本，后续更新必须继续使用同一份 `.jks`。请把它离线备份，绝不能提交到 Git。
 
 ## 目录结构
 
@@ -73,54 +113,5 @@ src/
   entities/            # Cannon 炮台 / Bullet 子弹 / Zombie 僵尸 / Coin 金币（对象池）
   scenes/              # Boot(纹理生成) / Menu / LevelSelect(含商店,50关滚动)
                        # Codex(图鉴) / Game(战斗) / UI(HUD+静音) / Result(结算)
-  ui/helpers.ts        # 按钮、文本样式等 UI 工具
-```
-
-
-## 部署到 GitHub Pages
-
-1. 在 GitHub 新建仓库并推送本项目：
-   ```bash
-   git remote add origin https://github.com/<你的用户名>/<仓库名>.git
-   git push -u origin main
-   ```
-2. 仓库 Settings -> Pages -> Build and deployment，Source 选择 **GitHub Actions**。
-3. 之后每次 push 到 `main`，`.github/workflows/deploy.yml` 会自动构建并发布。
-   访问地址：`https://<你的用户名>.github.io/<仓库名>/`
-
-> `vite.config.ts` 已设置 `base: './'`（相对路径），无需按仓库名改 base。
-
-## 打包安卓应用（Capacitor）
-
-首次生成安卓工程（本仓库已包含 `android/` 则跳过第 1 步）：
-
-```bash
-npx cap add android      # 1. 生成 android/ 原生工程
-npm run android:sync     # 2. 构建 web 产物并同步进安卓工程
-npm run android:open     # 3. 用 Android Studio 打开
-```
-
-在 Android Studio 中：
-
-1. 等待 Gradle 同步完成（首次需下载依赖）。
-2. 菜单 Build -> Build Bundle(s) / APK(s) -> Build APK(s) 生成调试版 APK。
-3. 正式发布用 Build -> Generate Signed Bundle / APK 并配置签名。
-
-建议在 `android/app/src/main/AndroidManifest.xml` 的 `<activity>` 上加
-`android:screenOrientation="portrait"` 锁定竖屏。
-
-改动 web 代码后重新执行 `npm run android:sync` 即可同步到安卓工程。
-
-## 目录结构
-
-```
-src/
-  main.ts              # Phaser 启动与缩放配置（720x1280 FIT）
-  data/                # 数值平衡 balance.ts、关卡配置 levels.ts
-  systems/             # WaveManager 波次 / UpgradeSystem 局内升级
-                       # SaveManager 存档 / MetaUpgrades 局外养成
-  entities/            # Cannon 炮台 / Bullet 子弹 / Zombie 僵尸 / Coin 金币（对象池）
-  scenes/              # Boot(纹理生成) / Menu / LevelSelect(含商店)
-                       # Game(战斗) / UI(HUD) / Result(结算)
   ui/helpers.ts        # 按钮、文本样式等 UI 工具
 ```

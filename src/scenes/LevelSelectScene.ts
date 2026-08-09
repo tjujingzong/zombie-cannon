@@ -10,6 +10,20 @@ import {
 } from '../data/balance';
 import { LEVELS, LEVEL_ENGINE_INFO, TOTAL_LEVELS } from '../data/levels';
 import { ARMORY_ITEMS, type ArmoryItemDef } from '../data/shop';
+import {
+  BEHAVIOR_EQUIPMENT,
+  BEHAVIOR_SLOT_LABELS,
+  type BehaviorEquipmentDef,
+  type BehaviorEquipmentSlot,
+} from '../data/equipment';
+import {
+  COMPANION_PROTOCOLS,
+  type CompanionProtocolDef,
+} from '../data/companion';
+import {
+  CHALLENGE_CONTRACTS,
+  type ChallengeContractDef,
+} from '../data/challengeContracts';
 import { AudioSystem } from '../systems/AudioSystem';
 import { SaveManager } from '../systems/SaveManager';
 import { createButton, FONT, textStyle, titleStyle } from '../ui/helpers';
@@ -24,17 +38,19 @@ export class LevelSelectScene extends Phaser.Scene {
   private levelsContainer!: Phaser.GameObjects.Container;
   private shopContainer!: Phaser.GameObjects.Container;
   private arsenalContainer!: Phaser.GameObjects.Container;
+  private moduleContainer!: Phaser.GameObjects.Container;
   private renderTarget!: Phaser.GameObjects.Container;
   private contentHeight = 0;
   private levelContentHeight = 0;
   private shopContentHeight = 0;
   private arsenalContentHeight = 0;
+  private moduleContentHeight = 0;
   private scrollY = 0;
   private scrollHitbox!: Phaser.GameObjects.Zone;
   private scrollbar!: Phaser.GameObjects.Graphics;
   private pageLabel!: Phaser.GameObjects.Text;
   private chapterPage = 0;
-  private activeTab: 'levels' | 'shop' | 'arsenal' = 'levels';
+  private activeTab: 'levels' | 'shop' | 'arsenal' | 'modules' = 'levels';
   private tabButtons: Phaser.GameObjects.Container[] = [];
   private pageButtons: Phaser.GameObjects.Container[] = [];
 
@@ -71,22 +87,27 @@ export class LevelSelectScene extends Phaser.Scene {
     this.levelsContainer = this.add.container(0, 188);
     this.shopContainer = this.add.container(0, 188).setVisible(false);
     this.arsenalContainer = this.add.container(0, 188).setVisible(false);
-    this.contentContainer.add([this.levelsContainer, this.shopContainer, this.arsenalContainer]);
+    this.moduleContainer = this.add.container(0, 188).setVisible(false);
+    this.contentContainer.add([this.levelsContainer, this.shopContainer, this.arsenalContainer, this.moduleContainer]);
     this.scrollbar = this.add.graphics().setDepth(8);
 
     this.tabButtons = [
-      createButton(this, GAME_WIDTH / 2 - 174, 126, '关卡', () => this.showTab('levels'), {
-        width: 156, height: 50, fontSize: 21, color: 0x2f754b, colorDown: 0x205636,
+      createButton(this, 96, 126, '关卡', () => this.showTab('levels'), {
+        width: 138, height: 50, fontSize: 20, color: 0x2f754b, colorDown: 0x205636,
       }),
-      createButton(this, GAME_WIDTH / 2, 126, '强化', () => this.showTab('shop'), {
-        width: 156, height: 50, fontSize: 21, color: 0x7a5a19, colorDown: 0x604411,
+      createButton(this, 272, 126, '强化', () => this.showTab('shop'), {
+        width: 138, height: 50, fontSize: 20, color: 0x7a5a19, colorDown: 0x604411,
       }),
-      createButton(this, GAME_WIDTH / 2 + 174, 126, '军械库', () => this.showTab('arsenal'), {
-        width: 156, height: 50, fontSize: 21, color: 0x355d78, colorDown: 0x27475c,
+      createButton(this, 448, 126, '军械库', () => this.showTab('arsenal'), {
+        width: 138, height: 50, fontSize: 20, color: 0x355d78, colorDown: 0x27475c,
+      }),
+      createButton(this, 624, 126, '模块', () => this.showTab('modules'), {
+        width: 138, height: 50, fontSize: 20, color: 0x6a4b7c, colorDown: 0x50385f,
       }),
     ];
     this.tabButtons[1].setAlpha(0.62);
     this.tabButtons[2].setAlpha(0.62);
+    this.tabButtons[3].setAlpha(0.62);
 
     this.chapterPage = Phaser.Math.Clamp(
       Math.floor((SaveManager.unlockedLevel - 1) / LEVEL_ENGINE_INFO.chapterSize),
@@ -96,6 +117,7 @@ export class LevelSelectScene extends Phaser.Scene {
     this.buildLevelPage();
     this.buildShopPage();
     this.buildArsenalPage();
+    this.buildModulePage();
     this.refreshPageControls();
 
     // 轻量滚动容器：商店未来扩展时仍可继续容纳内容
@@ -274,19 +296,198 @@ export class LevelSelectScene extends Phaser.Scene {
     this.arsenalContainer.add(button);
   }
 
-  private showTab(tab: 'levels' | 'shop' | 'arsenal'): void {
+  private buildModulePage(): void {
+    this.moduleContainer.removeAll(true);
+    this.moduleContainer.add(this.add.text(GAME_WIDTH / 2, 28, '行为装备', {
+      ...textStyle(30, '#ce93d8'), stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5));
+    this.moduleContainer.add(this.add.text(
+      GAME_WIDTH / 2,
+      64,
+      '三槽同时生效 · 3 × 3 × 3 = 27 种战斗组合',
+      textStyle(16, '#9ba8b2'),
+    ).setOrigin(0.5));
+
+    const slots: BehaviorEquipmentSlot[] = ['barrel', 'ammo', 'wall'];
+    slots.forEach((slot, row) => {
+      const items = BEHAVIOR_EQUIPMENT.filter((item) => item.slot === slot);
+      const headerY = 106 + row * 252;
+      this.moduleContainer.add(this.add.text(30, headerY, BEHAVIOR_SLOT_LABELS[slot], {
+        fontFamily: FONT, fontSize: '20px', fontStyle: 'bold', color: '#ffffff',
+      }));
+      this.moduleContainer.add(this.add.text(GAME_WIDTH - 30, headerY + 2, '三选一', {
+        ...textStyle(15, '#78909c'), align: 'right',
+      }).setOrigin(1, 0));
+      items.forEach((item, col) => this.createModuleCard(item, 124 + col * 236, headerY + 121));
+    });
+
+    const companionHeaderY = 862;
+    this.moduleContainer.add(this.add.text(30, companionHeaderY, '战术伙伴 R-7 · 协同协议', {
+      fontFamily: FONT, fontSize: '20px', fontStyle: 'bold', color: '#ffffff',
+    }));
+    this.moduleContainer.add(this.add.text(GAME_WIDTH - 30, companionHeaderY + 2, '三选一', {
+      ...textStyle(15, '#78909c'), align: 'right',
+    }).setOrigin(1, 0));
+    COMPANION_PROTOCOLS.forEach((protocol, col) => {
+      this.createCompanionCard(protocol, 124 + col * 236, companionHeaderY + 121);
+    });
+
+    const challengeHeaderY = 1132;
+    this.moduleContainer.add(this.add.text(30, challengeHeaderY, '自定义挑战契约', {
+      fontFamily: FONT, fontSize: '20px', fontStyle: 'bold', color: '#ffffff',
+    }));
+    this.moduleContainer.add(this.add.text(GAME_WIDTH - 30, challengeHeaderY + 2, '开局生效 · 高风险高回报', {
+      ...textStyle(15, '#78909c'), align: 'right',
+    }).setOrigin(1, 0));
+    const equippedContract = SaveManager.getChallengeContract();
+    const clearContract = createButton(this, GAME_WIDTH - 58, challengeHeaderY + 38, '清除', () => {
+      SaveManager.equipChallengeContract('none');
+      AudioSystem.play('ui_click');
+      this.buildModulePage();
+    }, {
+      width: 92, height: 38, fontSize: 16, color: equippedContract === 'none' ? 0x355247 : 0x455a64,
+      colorDown: 0x37474f, disabled: equippedContract === 'none',
+    });
+    this.moduleContainer.add(clearContract);
+    CHALLENGE_CONTRACTS.forEach((contract, col) => {
+      this.createChallengeCard(contract, 124 + col * 236, challengeHeaderY + 157);
+    });
+
+    this.moduleContentHeight = 188 + 1428;
+    if (this.activeTab === 'modules') this.contentHeight = this.moduleContentHeight;
+  }
+
+  private createModuleCard(item: BehaviorEquipmentDef, x: number, y: number): void {
+    const w = 212, h = 210;
+    const owned = SaveManager.ownsBehaviorEquipment(item.key);
+    const equipped = SaveManager.getEquippedBehaviorEquipment(item.slot) === item.key;
+    const affordable = SaveManager.coins >= item.cost;
+    const g = this.add.graphics();
+    g.fillStyle(0x071015, 0.32).fillRoundedRect(x - w / 2 + 3, y - h / 2 + 4, w, h, 8);
+    g.fillStyle(equipped ? 0x203b36 : 0x18242e, 1).fillRoundedRect(x - w / 2, y - h / 2, w, h, 8);
+    g.lineStyle(2, equipped ? item.color : 0x3f5360, equipped ? 1 : 0.75)
+      .strokeRoundedRect(x - w / 2, y - h / 2, w, h, 8);
+    this.moduleContainer.add(g);
+    this.moduleContainer.add(this.add.image(x - 72, y - 66, item.icon).setScale(0.66).setTint(item.color));
+    this.moduleContainer.add(this.add.text(x - 42, y - 82, item.name, {
+      fontFamily: FONT, fontSize: '18px', fontStyle: 'bold', color: equipped ? '#8ff0c8' : '#ffffff',
+    }));
+    this.moduleContainer.add(this.add.text(x - 42, y - 53, equipped ? '当前装配' : BEHAVIOR_SLOT_LABELS[item.slot], {
+      fontFamily: FONT, fontSize: '13px', fontStyle: 'bold', color: equipped ? '#66e0b0' : '#8296a3',
+    }));
+    this.moduleContainer.add(this.add.text(x - 88, y - 22, item.desc, {
+      ...textStyle(14, '#b4c0c8'),
+      wordWrap: { width: 176, useAdvancedWrap: true }, lineSpacing: 3,
+    }).setFixedSize(176, 72));
+
+    const label = equipped ? '已装备' : owned ? '装备' : `${item.cost} 金`;
+    const button = createButton(this, x, y + 72, label, () => {
+      if (!SaveManager.ownsBehaviorEquipment(item.key)) {
+        if (!SaveManager.buyBehaviorEquipment(item.key)) return;
+        this.coinText.setText(`${SaveManager.coins}`);
+      }
+      if (!SaveManager.equipBehaviorEquipment(item.slot, item.key)) return;
+      AudioSystem.play('upgrade');
+      this.buildModulePage();
+    }, {
+      width: 166, height: 42, fontSize: 16,
+      color: equipped ? 0x355247 : owned ? 0x2f8f63 : affordable ? 0x8f6a16 : 0x4a5560,
+      colorDown: owned ? 0x236e4c : 0x76550e,
+      disabled: equipped || (!owned && !affordable),
+    });
+    this.moduleContainer.add(button);
+  }
+
+  private createCompanionCard(protocol: CompanionProtocolDef, x: number, y: number): void {
+    const w = 212, h = 210;
+    const owned = SaveManager.ownsCompanionProtocol(protocol.key);
+    const equipped = SaveManager.getEquippedCompanionProtocol() === protocol.key;
+    const affordable = SaveManager.coins >= protocol.cost;
+    const g = this.add.graphics();
+    g.fillStyle(0x071015, 0.32).fillRoundedRect(x - w / 2 + 3, y - h / 2 + 4, w, h, 8);
+    g.fillStyle(equipped ? 0x263746 : 0x18242e, 1).fillRoundedRect(x - w / 2, y - h / 2, w, h, 8);
+    g.lineStyle(2, equipped ? protocol.color : 0x3f5360, equipped ? 1 : 0.75)
+      .strokeRoundedRect(x - w / 2, y - h / 2, w, h, 8);
+    this.moduleContainer.add(g);
+    this.moduleContainer.add(this.add.image(x - 72, y - 66, protocol.icon).setScale(0.66).setTint(protocol.color));
+    this.moduleContainer.add(this.add.text(x - 42, y - 82, protocol.name, {
+      fontFamily: FONT, fontSize: '18px', fontStyle: 'bold', color: equipped ? '#90caf9' : '#ffffff',
+    }));
+    this.moduleContainer.add(this.add.text(x - 42, y - 53, equipped ? '当前协议' : 'R-7 行为核心', {
+      fontFamily: FONT, fontSize: '13px', fontStyle: 'bold', color: equipped ? '#90caf9' : '#8296a3',
+    }));
+    this.moduleContainer.add(this.add.text(x - 88, y - 22, protocol.desc, {
+      ...textStyle(14, '#b4c0c8'),
+      wordWrap: { width: 176, useAdvancedWrap: true }, lineSpacing: 3,
+    }).setFixedSize(176, 72));
+
+    const label = equipped ? '已启用' : owned ? '启用' : `${protocol.cost} 金`;
+    const button = createButton(this, x, y + 72, label, () => {
+      if (!SaveManager.ownsCompanionProtocol(protocol.key)) {
+        if (!SaveManager.buyCompanionProtocol(protocol.key)) return;
+        this.coinText.setText(`${SaveManager.coins}`);
+      }
+      if (!SaveManager.equipCompanionProtocol(protocol.key)) return;
+      AudioSystem.play('upgrade');
+      this.buildModulePage();
+    }, {
+      width: 166, height: 42, fontSize: 16,
+      color: equipped ? 0x3f5360 : owned ? 0x376a88 : affordable ? 0x8f6a16 : 0x4a5560,
+      colorDown: owned ? 0x2c5873 : 0x76550e,
+      disabled: equipped || (!owned && !affordable),
+    });
+    this.moduleContainer.add(button);
+  }
+
+  private createChallengeCard(contract: ChallengeContractDef, x: number, y: number): void {
+    const w = 212, h = 210;
+    const equipped = SaveManager.getChallengeContract() === contract.key;
+    const g = this.add.graphics();
+    g.fillStyle(0x071015, 0.32).fillRoundedRect(x - w / 2 + 3, y - h / 2 + 4, w, h, 8);
+    g.fillStyle(equipped ? 0x3b2d28 : 0x18242e, 1).fillRoundedRect(x - w / 2, y - h / 2, w, h, 8);
+    g.lineStyle(2, equipped ? contract.color : 0x3f5360, equipped ? 1 : 0.75)
+      .strokeRoundedRect(x - w / 2, y - h / 2, w, h, 8);
+    this.moduleContainer.add(g);
+    this.moduleContainer.add(this.add.image(x - 72, y - 66, 'icon_armageddon').setScale(0.66).setTint(contract.color));
+    this.moduleContainer.add(this.add.text(x - 42, y - 82, contract.name, {
+      fontFamily: FONT, fontSize: '18px', fontStyle: 'bold', color: equipped ? '#ffd180' : '#ffffff',
+    }));
+    this.moduleContainer.add(this.add.text(x - 42, y - 53, equipped ? '当前契约' : '整局挑战', {
+      fontFamily: FONT, fontSize: '13px', fontStyle: 'bold', color: equipped ? '#ffcc80' : '#8296a3',
+    }));
+    this.moduleContainer.add(this.add.text(x - 88, y - 22, contract.desc, {
+      ...textStyle(14, '#b4c0c8'),
+      wordWrap: { width: 176, useAdvancedWrap: true }, lineSpacing: 3,
+    }).setFixedSize(176, 72));
+    const button = createButton(this, x, y + 72, equipped ? '已选择' : '选择', () => {
+      SaveManager.equipChallengeContract(contract.key);
+      AudioSystem.play('upgrade');
+      this.buildModulePage();
+    }, {
+      width: 166, height: 42, fontSize: 16,
+      color: equipped ? 0x7d5726 : 0x6d4b26, colorDown: 0x51381d,
+      disabled: equipped,
+    });
+    this.moduleContainer.add(button);
+  }
+
+  private showTab(tab: 'levels' | 'shop' | 'arsenal' | 'modules'): void {
     this.activeTab = tab;
     this.levelsContainer.setVisible(tab === 'levels');
     this.shopContainer.setVisible(tab === 'shop');
     this.arsenalContainer.setVisible(tab === 'arsenal');
+    this.moduleContainer.setVisible(tab === 'modules');
     this.tabButtons[0].setAlpha(tab === 'levels' ? 1 : 0.62);
     this.tabButtons[1].setAlpha(tab === 'shop' ? 1 : 0.62);
     this.tabButtons[2].setAlpha(tab === 'arsenal' ? 1 : 0.62);
+    this.tabButtons[3].setAlpha(tab === 'modules' ? 1 : 0.62);
     this.pageLabel.setVisible(tab === 'levels');
     this.pageButtons.forEach((b) => b.setVisible(tab === 'levels'));
     this.contentHeight = tab === 'levels'
       ? this.levelContentHeight
-      : tab === 'shop' ? this.shopContentHeight : this.arsenalContentHeight;
+      : tab === 'shop'
+        ? this.shopContentHeight
+        : tab === 'arsenal' ? this.arsenalContentHeight : this.moduleContentHeight;
     this.setScroll(0);
     AudioSystem.play('ui_click');
   }

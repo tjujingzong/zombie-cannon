@@ -22,9 +22,17 @@ export class UIScene extends Phaser.Scene {
   private overdriveBar!: Phaser.GameObjects.Graphics;
   private overdriveText!: Phaser.GameObjects.Text;
   private overdriveButton!: Phaser.GameObjects.Container;
+  private contractText!: Phaser.GameObjects.Text;
+  private battlefieldEventText!: Phaser.GameObjects.Text;
+  private battlefieldEventBar!: Phaser.GameObjects.Graphics;
+  private dailyChallengeText!: Phaser.GameObjects.Text;
+  private performanceText!: Phaser.GameObjects.Text;
+  private behaviorEquipmentText!: Phaser.GameObjects.Text;
+  private companionText!: Phaser.GameObjects.Text;
   private synergyIcons: Phaser.GameObjects.Text[] = [];
   private pendingIcons: Phaser.GameObjects.Text[] = [];
   private pauseGroup: Phaser.GameObjects.GameObject[] = [];
+  private buildGroup: Phaser.GameObjects.GameObject[] = [];
   private lastSynergyHash = '';
 
   constructor() {
@@ -42,7 +50,7 @@ export class UIScene extends Phaser.Scene {
     this.coinText = this.add.text(72, 44, '0', textStyle(28, '#ffd54a')).setOrigin(0, 0.5);
 
     this.levelText = this.add
-      .text(GAME_WIDTH / 2, 44, '', { fontFamily: FONT, fontSize: '26px', fontStyle: 'bold', color: '#ffffff' })
+      .text(GAME_WIDTH / 2 - 60, 44, '', { fontFamily: FONT, fontSize: '26px', fontStyle: 'bold', color: '#ffffff' })
       .setOrigin(0.5);
     this.waveText = this.add.text(GAME_WIDTH - 200, 44, '', textStyle(26, '#8fbf8f')).setOrigin(1, 0.5);
 
@@ -91,6 +99,34 @@ export class UIScene extends Phaser.Scene {
       stroke: '#101820', strokeThickness: 3,
     }).setDepth(15);
     this.overdriveButton = this.createOverdriveButton();
+    createButton(this, GAME_WIDTH - 72, 934, '构筑', () => this.showBuildPanel(), {
+      width: 112, height: 46, color: 0x37474f, colorDown: 0x263238, fontSize: 19,
+    }).setDepth(16);
+    this.contractText = this.add.text(40, 942, '', {
+      fontFamily: FONT, fontSize: '18px', fontStyle: 'bold', color: '#ff8a80',
+      stroke: '#180909', strokeThickness: 3,
+    }).setDepth(16);
+    this.battlefieldEventText = this.add.text(40, 156, '', {
+      fontFamily: FONT, fontSize: '18px', fontStyle: 'bold', color: '#ffffff',
+      stroke: '#071015', strokeThickness: 4,
+    }).setDepth(18).setAlpha(0);
+    this.battlefieldEventBar = this.add.graphics().setDepth(18);
+    this.dailyChallengeText = this.add.text(40, 914, '', {
+      fontFamily: FONT, fontSize: '15px', fontStyle: 'bold', color: '#ffffff',
+      stroke: '#071015', strokeThickness: 3,
+    }).setDepth(16).setAlpha(0);
+    this.performanceText = this.add.text(16, 196, '', {
+      fontFamily: 'Consolas, monospace', fontSize: '15px', color: '#a7ffeb',
+      backgroundColor: '#071014cc', padding: { x: 7, y: 5 }, lineSpacing: 2,
+    }).setDepth(24).setVisible(false);
+    this.behaviorEquipmentText = this.add.text(40, 1062, '', {
+      fontFamily: FONT, fontSize: '16px', fontStyle: 'bold', color: '#ce93d8',
+      stroke: '#071015', strokeThickness: 3,
+    }).setDepth(16).setFixedSize(GAME_WIDTH - 80, 24);
+    this.companionText = this.add.text(40, 1090, '', {
+      fontFamily: FONT, fontSize: '16px', fontStyle: 'bold', color: '#ffd54a',
+      stroke: '#071015', strokeThickness: 3,
+    }).setDepth(16).setFixedSize(GAME_WIDTH - 80, 24);
 
     // 底部技能图标区
     this.updateSynergyDisplay();
@@ -129,12 +165,16 @@ export class UIScene extends Phaser.Scene {
       width: 340, height: 92,
     });
     const quit = createButton(
-      this, GAME_WIDTH / 2, 730, '放弃关卡',
+      this, GAME_WIDTH / 2, 730, this.game_.isEndlessMode ? '结束征程' : '放弃关卡',
       () => {
         this.closePause();
+        if (this.game_.isEndlessMode) {
+          this.game_.finishEndlessRun();
+          return;
+        }
         this.scene.stop('Game');
         this.scene.stop();
-        this.scene.start('LevelSelect');
+        this.scene.start(this.game_.isDailyMode ? 'Menu' : 'LevelSelect');
       },
       { width: 340, height: 92, color: 0x8d3b3b, colorDown: 0x6d2b2b }
     );
@@ -144,6 +184,112 @@ export class UIScene extends Phaser.Scene {
   private closePause(): void {
     this.pauseGroup.forEach((o) => o.destroy());
     this.pauseGroup = [];
+    this.scene.resume('Game');
+  }
+
+  private showBuildPanel(): void {
+    if (this.buildGroup.length > 0 || this.pauseGroup.length > 0) return;
+    this.scene.pause('Game');
+    this.performanceText.setVisible(false);
+
+    const overlay = createOverlay(this, 0.78).setDepth(50);
+    const panel = this.add.graphics().setDepth(51);
+    panel.fillStyle(0x101820, 0.99).fillRoundedRect(34, 76, GAME_WIDTH - 68, GAME_HEIGHT - 152, 8);
+    panel.lineStyle(2, 0x607d8b, 0.8).strokeRoundedRect(34, 76, GAME_WIDTH - 68, GAME_HEIGHT - 152, 8);
+    const title = this.add.text(72, 112, '火力构筑', {
+      fontFamily: FONT, fontSize: '38px', fontStyle: 'bold', color: '#ffffff',
+    }).setDepth(52);
+    const close = createButton(this, GAME_WIDTH - 76, 126, '×', () => this.closeBuildPanel(), {
+      width: 54, height: 54, color: 0x455a64, colorDown: 0x263238, fontSize: 34,
+    }).setDepth(52);
+
+    const objects: Phaser.GameObjects.GameObject[] = [overlay, panel, title, close];
+    const loadout = this.add.text(72, 156,
+      `行为装备 · ${this.game_.behaviorEquipmentLabel} · ${this.game_.behaviorEquipmentStatus}`, {
+        fontFamily: FONT, fontSize: '16px', fontStyle: 'bold', color: '#ce93d8',
+      }).setDepth(52);
+    objects.push(loadout);
+    this.game_.skills.getBuildProgress().forEach((build, index) => {
+      const y = 194 + index * 105;
+      const name = this.add.text(72, y, build.name, {
+        fontFamily: FONT, fontSize: '23px', fontStyle: 'bold', color: build.colorHex,
+      }).setDepth(52);
+      const percent = Math.round(build.progress * 100);
+      const status = this.add.text(GAME_WIDTH - 72, y + 2, build.ultimateActive ? '终极已激活' : `${percent}%`, {
+        fontFamily: FONT, fontSize: '18px', fontStyle: 'bold', color: build.ultimateActive ? '#ffd54a' : '#b0bec5',
+      }).setOrigin(1, 0).setDepth(52);
+      const tagline = this.add.text(72, y + 34, build.ultimateActive ? build.ultimateName : build.tagline, {
+        fontFamily: FONT, fontSize: '15px', color: '#83939e',
+      }).setDepth(52);
+      const bar = this.add.graphics().setDepth(52);
+      bar.fillStyle(0x26343d, 1).fillRoundedRect(72, y + 66, GAME_WIDTH - 144, 12, 6);
+      if (build.progress > 0) {
+        bar.fillStyle(build.ultimateActive ? 0xffca28 : build.color, 1)
+          .fillRoundedRect(72, y + 66, Math.max(8, (GAME_WIDTH - 144) * build.progress), 12, 6);
+      }
+      objects.push(name, status, tagline, bar);
+    });
+
+    const owned = this.game_.skills.getOwnedSkills();
+    const skillsTitle = this.add.text(72, 620, `技能载荷 · ${owned.length}`, {
+      fontFamily: FONT, fontSize: '21px', fontStyle: 'bold', color: '#ffffff',
+    }).setDepth(52);
+    objects.push(skillsTitle);
+    owned.slice(0, 12).forEach((entry, index) => {
+      const col = index % 2;
+      const row = Math.floor(index / 2);
+      const skillText = this.add.text(72 + col * 292, 660 + row * 32, `${entry.skill.name}  Lv.${entry.level}`, {
+        fontFamily: FONT, fontSize: '16px', color: entry.skill.category === 'defense' ? '#81c784' : '#cfd8dc',
+      }).setDepth(52);
+      objects.push(skillText);
+    });
+
+    const synergies = this.game_.skills.getActiveSynergies();
+    const synergyTitle = this.add.text(72, 864, `组合技 · ${synergies.length}`, {
+      fontFamily: FONT, fontSize: '21px', fontStyle: 'bold', color: '#ffa726',
+    }).setDepth(52);
+    const synergyText = this.add.text(72, 900,
+      synergies.length > 0 ? synergies.slice(-6).map((item) => item.name).join(' · ') : '尚未激活', {
+        fontFamily: FONT, fontSize: '16px', color: '#c6a76c',
+        wordWrap: { width: GAME_WIDTH - 144 }, lineSpacing: 7,
+      }).setDepth(52);
+    objects.push(synergyTitle, synergyText);
+
+    const damage = this.game_.getDamageBreakdown().slice(0, 4);
+    const damageTitle = this.add.text(72, 972, '主要伤害来源', {
+      fontFamily: FONT, fontSize: '21px', fontStyle: 'bold', color: '#ffffff',
+    }).setDepth(52);
+    const damageText = this.add.text(72, 1008,
+      damage.length > 0
+        ? damage.map((item) => `${item.label} ${Math.round(item.percent * 100)}%`).join('  ·  ')
+        : '战斗开始后生成统计', {
+        fontFamily: FONT, fontSize: '16px', color: '#90caf9',
+        wordWrap: { width: GAME_WIDTH - 144 }, lineSpacing: 6,
+      }).setDepth(52);
+    objects.push(damageTitle, damageText);
+
+    const performance = this.game_.performanceStats;
+    const perfLabel = performance.enabled
+      ? `FPS ${performance.fps} / 低点 ${performance.lowFps} · 敌 ${performance.enemies} · 弹 ${performance.projectiles} · 粒 ${performance.particles}`
+      : '性能监测当前关闭';
+    const perfText = this.add.text(72, 1092, perfLabel, {
+      fontFamily: 'Consolas, monospace', fontSize: '15px', color: performance.enabled ? '#a7ffeb' : '#78909c',
+    }).setDepth(52);
+    const perfButton = createButton(this, GAME_WIDTH - 152, 1122, performance.enabled ? '关闭监测' : '开启监测', () => {
+      this.game_.setPerformanceMonitoring(!this.game_.performanceStats.enabled);
+      this.closeBuildPanel();
+      this.showBuildPanel();
+    }, {
+      width: 190, height: 50, color: performance.enabled ? 0x546e7a : 0x2e7d6f,
+      colorDown: 0x245a52, fontSize: 18,
+    }).setDepth(52);
+    objects.push(perfText, perfButton);
+    this.buildGroup = objects;
+  }
+
+  private closeBuildPanel(): void {
+    this.buildGroup.forEach((object) => object.destroy());
+    this.buildGroup = [];
     this.scene.resume('Game');
   }
 
@@ -256,6 +402,42 @@ export class UIScene extends Phaser.Scene {
     // 击杀计数
     const kills = this.game_.skills?.totalKills ?? 0;
     this.killText.setText(kills > 0 ? `☠${kills}` : '');
+    this.contractText.setText(
+      this.game_.contractStatus || this.game_.challengeContractStatus,
+    );
+    const modeStatus = this.game_.dailyChallengeStatus || this.game_.endlessStatus;
+    const modeColor = this.game_.dailyChallengeStatus
+      ? this.game_.dailyChallengeColor
+      : this.game_.endlessColor;
+    this.dailyChallengeText.setText(modeStatus).setAlpha(modeStatus ? 1 : 0);
+    if (modeStatus) {
+      this.dailyChallengeText.setColor(`#${modeColor.toString(16).padStart(6, '0')}`);
+    }
+    const eventStatus = this.game_.battlefieldEventStatus;
+    this.battlefieldEventText.setText(eventStatus).setAlpha(eventStatus ? 1 : 0);
+    if (eventStatus) {
+      this.battlefieldEventText.setColor(`#${this.game_.battlefieldEventColor.toString(16).padStart(6, '0')}`);
+    }
+    this.battlefieldEventBar.clear();
+    const eventProgress = Phaser.Math.Clamp(this.game_.battlefieldEventProgress, 0, 1);
+    if (eventProgress > 0) {
+      this.battlefieldEventBar.fillStyle(0x071015, 0.82).fillRoundedRect(40, 178, 286, 9, 4);
+      this.battlefieldEventBar.fillStyle(this.game_.battlefieldEventColor, 1)
+        .fillRoundedRect(41, 179, Math.max(7, 284 * eventProgress), 7, 3);
+    }
+    const performance = this.game_.performanceStats;
+    this.performanceText.setVisible(performance.enabled && this.buildGroup.length === 0);
+    if (performance.enabled) {
+      this.performanceText.setText(
+        `FPS ${performance.fps}  LOW ${performance.lowFps}\nE ${performance.enemies}  B ${performance.projectiles}  P ${performance.particles}  EL ${performance.elites}`,
+      );
+    }
+    this.behaviorEquipmentText
+      .setText(`${this.game_.behaviorEquipmentLabel}  |  ${this.game_.behaviorEquipmentStatus}`)
+      .setColor(`#${this.game_.behaviorEquipmentColor.toString(16).padStart(6, '0')}`);
+    this.companionText
+      .setText(this.game_.companionStatus)
+      .setColor(`#${this.game_.companionColor.toString(16).padStart(6, '0')}`);
 
     // 墙血条
     const ratio = this.game_.wallMaxHp > 0 ? this.game_.wallHp / this.game_.wallMaxHp : 0;

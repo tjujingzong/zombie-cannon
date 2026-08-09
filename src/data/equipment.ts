@@ -1,0 +1,96 @@
+export type BehaviorEquipmentSlot = 'barrel' | 'ammo' | 'wall';
+
+export type BehaviorEquipmentKey =
+  | 'barrel_cycler'
+  | 'barrel_rail'
+  | 'barrel_scatter'
+  | 'ammo_cryo'
+  | 'ammo_shrapnel'
+  | 'ammo_volatile'
+  | 'wall_pulse'
+  | 'wall_salvage'
+  | 'wall_reflector';
+
+export interface BehaviorEquipmentDef {
+  key: BehaviorEquipmentKey;
+  slot: BehaviorEquipmentSlot;
+  name: string;
+  shortName: string;
+  desc: string;
+  cost: number;
+  icon: string;
+  color: number;
+}
+
+export type BehaviorLoadout = Record<BehaviorEquipmentSlot, BehaviorEquipmentKey>;
+
+export const BEHAVIOR_SLOT_LABELS: Record<BehaviorEquipmentSlot, string> = {
+  barrel: '炮管槽',
+  ammo: '弹药槽',
+  wall: '城墙模块槽',
+};
+
+export const DEFAULT_BEHAVIOR_LOADOUT: BehaviorLoadout = {
+  barrel: 'barrel_cycler',
+  ammo: 'ammo_cryo',
+  wall: 'wall_pulse',
+};
+
+export const BEHAVIOR_EQUIPMENT: BehaviorEquipmentDef[] = [
+  {
+    key: 'barrel_cycler', slot: 'barrel', name: '涡轮旋管', shortName: '旋管',
+    desc: '连续齐射积热提速；满热强制排热，并喷出一轮扇形弹幕。',
+    cost: 0, icon: 'icon_firerate', color: 0xffb74d,
+  },
+  {
+    key: 'barrel_rail', slot: 'barrel', name: '贯线重炮', shortName: '重炮',
+    desc: '射速降低，单发重击、额外穿透并将幸存目标击退。',
+    cost: 950, icon: 'icon_pierce', color: 0xd1c4e9,
+  },
+  {
+    key: 'barrel_scatter', slot: 'barrel', name: '扇面补偿器', shortName: '扇射',
+    desc: '每第三轮齐射追加两枚侧翼弹，快速横扫密集尸潮。',
+    cost: 1250, icon: 'icon_ricochet', color: 0x4dd0e1,
+  },
+  {
+    key: 'ammo_cryo', slot: 'ammo', name: '零度冷凝弹', shortName: '冷凝',
+    desc: '每第五枚弹触发冷凝冲击，强减速命中点附近的敌人。',
+    cost: 0, icon: 'icon_frost', color: 0x80deea,
+  },
+  {
+    key: 'ammo_shrapnel', slot: 'ammo', name: '猎杀破片弹', shortName: '破片',
+    desc: '主炮击杀会向附近目标飞散五枚碎片，连续收割尸群。',
+    cost: 1100, icon: 'icon_ricochet', color: 0xa5d6a7,
+  },
+  {
+    key: 'ammo_volatile', slot: 'ammo', name: '不稳定弹芯', shortName: '爆芯',
+    desc: '每第六枚弹在首次命中时爆炸，穿透弹也只引爆一次。',
+    cost: 1450, icon: 'icon_explosion', color: 0xff8a65,
+  },
+  {
+    key: 'wall_pulse', slot: 'wall', name: '震荡电网', shortName: '电网',
+    desc: '冷却就绪后受击释放防线脉冲，伤害并大幅击退近墙敌人。',
+    cost: 0, icon: 'icon_shield', color: 0x64b5f6,
+  },
+  {
+    key: 'wall_salvage', slot: 'wall', name: '战场回收网', shortName: '回收',
+    desc: '击杀精英或首领时回收材料，立刻修复一部分城墙。',
+    cost: 1050, icon: 'icon_repair', color: 0x81c784,
+  },
+  {
+    key: 'wall_reflector', slot: 'wall', name: '动能反射甲', shortName: '反射',
+    desc: '城墙受击时向前线反射冲击，震退并伤害最近的一批敌人。',
+    cost: 1350, icon: 'icon_thorns', color: 0xffcc80,
+  },
+];
+
+export function getBehaviorEquipment(key: string): BehaviorEquipmentDef | undefined {
+  return BEHAVIOR_EQUIPMENT.find((item) => item.key === key);
+}
+
+export function isBehaviorEquipmentForSlot(
+  key: unknown,
+  slot: BehaviorEquipmentSlot,
+): key is BehaviorEquipmentKey {
+  return typeof key === 'string' && getBehaviorEquipment(key)?.slot === slot;
+}

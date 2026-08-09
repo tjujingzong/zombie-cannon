@@ -147,6 +147,8 @@ export interface SynergyDef {
   icon: string;
   /** 所需技能及其最低等级 */
   requires: { skill: string; minLevel: number }[];
+  /** 四条核心流派的终局进化节点 */
+  ultimate?: boolean;
 }
 
 export const SYNERGIES: SynergyDef[] = [
@@ -268,6 +270,55 @@ export const SYNERGIES: SynergyDef[] = [
     desc: '自动修复城墙时同步补充能量护盾',
     icon: 'icon_field_hospital',
     requires: [{ skill: 'fieldMedic', minLevel: 1 }, { skill: 'energyShield', minLevel: 1 }],
+  },
+  {
+    key: 'elementalCataclysm',
+    name: '终极·冰火湮灭',
+    desc: '冰火震爆范围扩大，并引发二次爆破',
+    icon: 'art_ultimate_elemental_cataclysm_v1',
+    requires: [
+      { skill: 'burnBullets', minLevel: 3 },
+      { skill: 'frostRounds', minLevel: 3 },
+      { skill: 'explosiveRound', minLevel: 2 },
+    ],
+    ultimate: true,
+  },
+  {
+    key: 'infiniteBarrage',
+    name: '终极·无限弹幕',
+    desc: '攻速再次提升35%，并增加一次弹射',
+    icon: 'art_ultimate_infinite_barrage_v1',
+    requires: [
+      { skill: 'rapidFire', minLevel: 4 },
+      { skill: 'multiBarrel', minLevel: 3 },
+      { skill: 'ricochet', minLevel: 2 },
+    ],
+    ultimate: true,
+  },
+  {
+    key: 'orbitalCommand',
+    name: '终极·天基指挥',
+    desc: '导弹与空中支援频率、齐射数量全面提升',
+    icon: 'art_ultimate_orbital_command_v1',
+    requires: [
+      { skill: 'homingMissile', minLevel: 3 },
+      { skill: 'airSupport', minLevel: 3 },
+      { skill: 'gravityWell', minLevel: 1 },
+    ],
+    ultimate: true,
+  },
+  {
+    key: 'eternalFortress',
+    name: '终极·永恒堡垒',
+    desc: '护盾容量与雷区部署效率大幅提升',
+    icon: 'art_ultimate_eternal_fortress_v1',
+    requires: [
+      { skill: 'steelWall', minLevel: 3 },
+      { skill: 'energyShield', minLevel: 3 },
+      { skill: 'minefield', minLevel: 3 },
+      { skill: 'fieldMedic', minLevel: 2 },
+    ],
+    ultimate: true,
   },
 ];
 

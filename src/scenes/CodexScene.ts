@@ -252,7 +252,7 @@ export class CodexScene extends Phaser.Scene {
       g.fillStyle(0x251a0a, 1).fillRoundedRect(margin, y, cardW, cardH, 14);
       g.fillStyle(0xffa726, 0.5).fillRoundedRect(margin, y, 8, cardH, { tl: 14, tr: 0, bl: 14, br: 0 });
 
-      const icon = this.add.image(margin + 60, y + 50, syn.icon).setScale(1.2);
+      const icon = this.add.image(margin + 60, y + 50, syn.icon).setDisplaySize(76, 76);
       const nameTxt = this.add.text(margin + 110, y + 16, syn.name, {
         fontFamily: FONT, fontSize: '22px', fontStyle: 'bold', color: '#ffd54a',
       });

@@ -11,11 +11,14 @@ export class Cannon extends Phaser.GameObjects.Container {
   private barrel: Phaser.GameObjects.Image;
   private base: Phaser.GameObjects.Image;
   private fireCooldown = 0;
+  private fireRateMultiplier = 1;
+  private firingLocked = false;
   private aimAngle = -Math.PI / 2;
   private skills: SkillSystem;
 
   /** 开火回调 */
   onFire: (x: number, y: number, angle: number) => void = () => {};
+  onVolley: (x: number, y: number, angle: number, shots: number) => void = () => {};
 
   constructor(scene: Phaser.Scene, skills: SkillSystem) {
     super(scene, GAME_WIDTH / 2, CANNON_Y);
@@ -33,12 +36,17 @@ export class Cannon extends Phaser.GameObjects.Container {
     this.aimAngle = Phaser.Math.Angle.Between(this.x, this.y, worldX, worldY);
   }
 
+  setFireProfile(rateMultiplier: number, locked: boolean): void {
+    this.fireRateMultiplier = Phaser.Math.Clamp(rateMultiplier, 0.2, 3);
+    this.firingLocked = locked;
+  }
+
   update(dt: number, zombies: Zombie[]): void {
     this.barrel.setRotation(this.aimAngle + Math.PI / 2);
 
     this.fireCooldown -= dt;
-    if (zombies.length > 0 && this.fireCooldown <= 0) {
-      this.fireCooldown = 1 / this.skills.fireRate;
+    if (!this.firingLocked && zombies.length > 0 && this.fireCooldown <= 0) {
+      this.fireCooldown = 1 / (this.skills.fireRate * this.fireRateMultiplier);
       this.fireVolley(this.aimAngle);
     }
   }
@@ -60,6 +68,9 @@ export class Cannon extends Phaser.GameObjects.Container {
         onComplete: () => flash.destroy(),
       });
     }
+    const centerX = this.x + Math.cos(angle) * muzzleLen;
+    const centerY = this.y + Math.sin(angle) * muzzleLen;
+    this.onVolley(centerX, centerY, angle, count);
     // 后坐力
     this.scene.tweens.add({
       targets: this.barrel, scaleY: 0.86, duration: 45, yoyo: true,

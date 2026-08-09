@@ -1,4 +1,4 @@
-package com.example.zombiecannon;
+package io.github.tjujingzong.zombiecannon;
 
 import com.getcapacitor.BridgeActivity;
 

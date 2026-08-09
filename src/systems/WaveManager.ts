@@ -6,6 +6,7 @@ import {
   HORDE_SPAWN_INTERVAL,
   type ZombieTypeKey,
 } from '../data/balance';
+import { randomBetween, type RandomSource } from './SeededRandom';
 
 // 单个待执行的刷怪任务
 interface SpawnTask {
@@ -29,6 +30,10 @@ export class WaveManager {
   private waveTime = 0;
   /** 怪物数量倍率（用于战前免费选技能后的难度平衡） */
   private monsterMultiplier: number;
+  private nextWaveMultiplier = 1;
+  private readonly endlessMode: boolean;
+  private readonly random: RandomSource;
+  private currentBossWave = false;
   state: WaveState = 'idle';
   isHordeWave = false;
   hordeProgress = 0;
@@ -36,9 +41,16 @@ export class WaveManager {
   onSpawn: (type: ZombieTypeKey) => void = () => {};
   onHordeStart: (count: number) => void = () => {};
 
-  constructor(level: LevelConfig, monsterMultiplier = 1) {
+  constructor(
+    level: LevelConfig,
+    monsterMultiplier = 1,
+    endlessMode = false,
+    random: RandomSource = Math.random,
+  ) {
     this.level = level;
     this.monsterMultiplier = monsterMultiplier;
+    this.endlessMode = endlessMode;
+    this.random = random;
   }
 
   /** 动态设置怪物倍率（在 startNextWave 之前生效） */
@@ -46,32 +58,48 @@ export class WaveManager {
     this.monsterMultiplier = m;
   }
 
+  /** 仅强化下一波，供波间风险契约使用。 */
+  setNextWaveMultiplier(multiplier: number): void {
+    this.nextWaveMultiplier = Math.max(1, multiplier);
+  }
+
   get currentWave(): number {
     return this.waveIndex + 1;
   }
 
   get totalWaves(): number {
-    return this.level.waves.length;
+    return this.endlessMode ? Infinity : this.level.waves.length;
   }
 
   get isLastWave(): boolean {
-    return this.waveIndex >= this.level.waves.length - 1;
+    return !this.endlessMode && this.waveIndex >= this.level.waves.length - 1;
+  }
+
+  get isBossWave(): boolean {
+    return this.currentBossWave;
   }
 
   /** 开始下一波，返回 false 表示已无后续波次 */
   startNextWave(): boolean {
-    if (this.waveIndex + 1 >= this.level.waves.length) {
+    if (!this.endlessMode && this.waveIndex + 1 >= this.level.waves.length) {
       this.state = 'levelDone';
       return false;
     }
     this.waveIndex++;
     this.waveTime = 0;
-    this.isHordeWave = this.waveIndex === this.level.waves.length - 1;
+    const waveNumber = this.waveIndex + 1;
+    const waveConfig = this.endlessMode
+      ? this.generateEndlessWave(waveNumber)
+      : this.level.waves[this.waveIndex];
+    this.currentBossWave = Boolean(waveConfig.bossWave);
+    this.isHordeWave = this.endlessMode ? waveNumber % 5 === 0 : this.waveIndex === this.level.waves.length - 1;
     this.hordeProgress = 0;
-    this.tasks = this.level.waves[this.waveIndex].groups.map((gr: SpawnGroup) => {
+    const effectiveMultiplier = this.monsterMultiplier * this.nextWaveMultiplier;
+    this.nextWaveMultiplier = 1;
+    this.tasks = waveConfig.groups.map((gr: SpawnGroup) => {
       const countScale = 1 + this.waveIndex * 0.16;
       const paceScale = 1 + this.waveIndex * 0.28;
-      const total = Math.max(1, Math.round(gr.count * this.monsterMultiplier * countScale));
+      const total = Math.max(1, Math.round(gr.count * effectiveMultiplier * countScale));
       return {
         type: gr.type,
         remaining: total,
@@ -82,23 +110,24 @@ export class WaveManager {
     });
 
     if (this.isHordeWave) {
-      const rawCount = HORDE_BASE_COUNT + this.level.id * HORDE_COUNT_PER_LEVEL;
-      const swarmTotal = Math.min(HORDE_MAX_COUNT, Math.round(rawCount * this.monsterMultiplier));
-      const fastTotal = Math.max(8, Math.round((8 + this.level.id * 0.45) * this.monsterMultiplier));
+      const difficultyIndex = this.endlessMode ? waveNumber : this.level.id;
+      const rawCount = HORDE_BASE_COUNT + difficultyIndex * HORDE_COUNT_PER_LEVEL;
+      const swarmTotal = Math.min(HORDE_MAX_COUNT, Math.round(rawCount * effectiveMultiplier));
+      const fastTotal = Math.max(8, Math.round((8 + difficultyIndex * 0.45) * effectiveMultiplier));
       this.tasks.push(
         {
           type: 'swarm', remaining: swarmTotal, total: swarmTotal,
-          interval: Math.max(0.055, HORDE_SPAWN_INTERVAL - this.level.id * 0.0005), nextAt: 0.7,
+          interval: Math.max(0.055, HORDE_SPAWN_INTERVAL - difficultyIndex * 0.0005), nextAt: 0.7,
         },
         {
           type: 'fast', remaining: fastTotal, total: fastTotal,
           interval: 0.18, nextAt: 2.2,
         },
       );
-      if (this.level.id >= 6) {
-        const burrowers = Math.min(14, 3 + Math.floor(this.level.id / 5));
-        const conductors = Math.min(6, 1 + Math.floor(this.level.id / 12));
-        const siphons = Math.min(7, Math.floor(this.level.id / 10));
+      if (difficultyIndex >= 6) {
+        const burrowers = Math.min(14, 3 + Math.floor(difficultyIndex / 5));
+        const conductors = Math.min(6, 1 + Math.floor(difficultyIndex / 12));
+        const siphons = Math.min(7, Math.floor(difficultyIndex / 10));
         this.tasks.push(
           { type: 'burrower', remaining: burrowers, total: burrowers, interval: 0.52, nextAt: 1.3 },
           { type: 'conductor', remaining: conductors, total: conductors, interval: 2.2, nextAt: 0.9 },
@@ -111,6 +140,37 @@ export class WaveManager {
     }
     this.state = 'spawning';
     return true;
+  }
+
+  private generateEndlessWave(wave: number): { groups: SpawnGroup[]; bossWave?: boolean } {
+    const pool = [
+      'normal', 'fast', 'tank', 'exploder', 'splitter', 'spitter', 'healer', 'shield',
+      'ghost', 'berserker', 'leaper', 'jammer', 'burrower', 'conductor', 'summoner', 'siphon',
+    ] as ZombieTypeKey[];
+    const unlocked = pool.slice(0, Math.min(pool.length, 2 + Math.floor((wave - 1) / 2)));
+    const candidates = [...unlocked];
+    const groupCount = Math.min(5, 2 + Math.floor((wave - 1) / 3));
+    const groups: SpawnGroup[] = [];
+    for (let index = 0; index < groupCount && candidates.length > 0; index++) {
+      const typeIndex = randomBetween(this.random, 0, candidates.length - 1);
+      const type = candidates.splice(typeIndex, 1)[0];
+      groups.push({
+        type,
+        count: Math.max(3, 6 + Math.floor(wave * 0.7) - index),
+        interval: Math.max(0.28, 1.18 - wave * 0.025 + index * 0.11),
+        delay: index * 1.1,
+      });
+    }
+    const bossWave = wave % 10 === 0;
+    if (bossWave) {
+      groups.unshift({
+        type: 'boss',
+        count: Math.min(3, 1 + Math.floor((wave - 10) / 30)),
+        interval: 5,
+        delay: 0.4,
+      });
+    }
+    return { groups, bossWave };
   }
 
   /** aliveCount: 场上存活僵尸数量 */

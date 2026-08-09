@@ -3,6 +3,8 @@ import {
   SKILLS, SYNERGIES, getSkill,
   rarityWeight, type Rarity, type SynergyDef, type SkillDef,
 } from '../data/skills';
+import { BUILD_PATHS, type BuildPathKey } from '../data/combat';
+import type { RandomSource } from './SeededRandom';
 
 /** 刷新结果项 */
 export interface RollChoice {
@@ -12,6 +14,17 @@ export interface RollChoice {
   synergyHints: SynergyDef[];
   /** 差一个技能就能激活的组合技 */
   nearSynergies: SynergyDef[];
+}
+
+export interface BuildProgress {
+  key: BuildPathKey;
+  name: string;
+  color: number;
+  colorHex: string;
+  tagline: string;
+  progress: number;
+  ultimateName: string;
+  ultimateActive: boolean;
 }
 
 /**
@@ -39,6 +52,8 @@ export class SkillSystem {
   /** 连杀回调 */
   onKillStreak: (streak: number) => void = () => {};
 
+  constructor(private readonly random: RandomSource = Math.random) {}
+
   // ── 属性计算 ──
 
   get damage(): number {
@@ -54,6 +69,7 @@ export class SkillSystem {
     if (this.hasSynergy('barrage') && this.getLevel('multiBarrel') > 0) {
       rate *= 1.5;
     }
+    if (this.hasSynergy('infiniteBarrage')) rate *= 1.35;
     return rate * (this.overdriveActive ? 1.75 : 1) * this.enemyFireRateMultiplier;
   }
 
@@ -77,18 +93,19 @@ export class SkillSystem {
   }
 
   get ricochetCount(): number {
-    return this.getLevel('ricochet');
+    return this.getLevel('ricochet') + (this.hasSynergy('infiniteBarrage') ? 1 : 0);
   }
 
   get missileInterval(): number {
     const lv = this.getLevel('homingMissile');
     if (lv === 0) return Infinity;
-    return Math.max(2, 4 - (lv - 1) * 0.5);
+    const interval = Math.max(2, 4 - (lv - 1) * 0.5);
+    return this.hasSynergy('orbitalCommand') ? interval * 0.62 : interval;
   }
 
   get missileCount(): number {
-    if (!this.hasSynergy('saturationStrike')) return 1;
-    return 3;
+    const base = this.hasSynergy('saturationStrike') ? 3 : 1;
+    return base + (this.hasSynergy('orbitalCommand') ? 2 : 0);
   }
 
   get explosiveDamage(): number {
@@ -108,7 +125,8 @@ export class SkillSystem {
   }
 
   get wallDamageReduction(): number {
-    return this.getLevel('steelWall') * getSkill('steelWall').perLevel;
+    const base = this.getLevel('steelWall') * getSkill('steelWall').perLevel;
+    return Math.min(0.82, base + (this.hasSynergy('eternalFortress') ? 0.07 : 0));
   }
 
   get thornsDamage(): number {
@@ -127,7 +145,8 @@ export class SkillSystem {
   }
 
   get shieldAmount(): number {
-    return 50 + this.getLevel('energyShield') * getSkill('energyShield').perLevel;
+    const amount = 50 + this.getLevel('energyShield') * getSkill('energyShield').perLevel;
+    return this.hasSynergy('eternalFortress') ? amount * 1.5 : amount;
   }
 
   get coinMultiplier(): number {
@@ -159,13 +178,16 @@ export class SkillSystem {
     const level = this.getLevel('airSupport');
     if (level === 0) return Infinity;
     const interval = Math.max(1.8, 4.5 - level * 0.75);
-    return this.hasSynergy('droneSwarm') ? interval * 0.72 : interval;
+    if (this.hasSynergy('droneSwarm')) return interval * (this.hasSynergy('orbitalCommand') ? 0.45 : 0.72);
+    return this.hasSynergy('orbitalCommand') ? interval * 0.62 : interval;
   }
 
   get airSupportCount(): number {
     const level = this.getLevel('airSupport');
     const base = level >= 3 ? 2 : level > 0 ? 1 : 0;
-    return base + (base > 0 && this.hasSynergy('droneSwarm') ? 2 : 0);
+    return base
+      + (base > 0 && this.hasSynergy('droneSwarm') ? 2 : 0)
+      + (base > 0 && this.hasSynergy('orbitalCommand') ? 2 : 0);
   }
 
   get gravityWellInterval(): number {
@@ -183,7 +205,9 @@ export class SkillSystem {
 
   get mineInterval(): number {
     const level = this.getLevel('minefield');
-    return level > 0 ? Math.max(2.8, 5.8 - level * 0.8) : Infinity;
+    if (level === 0) return Infinity;
+    const interval = Math.max(2.8, 5.8 - level * 0.8);
+    return this.hasSynergy('eternalFortress') ? interval * 0.58 : interval;
   }
 
   get mineLimit(): number {
@@ -214,7 +238,7 @@ export class SkillSystem {
   }
 
   setEnemyFireRateMultiplier(multiplier: number): void {
-    this.enemyFireRateMultiplier = Math.min(1, Math.max(0.65, multiplier));
+    this.enemyFireRateMultiplier = Math.min(1, Math.max(0.35, multiplier));
   }
 
   get luckBonus(): number {
@@ -273,18 +297,47 @@ export class SkillSystem {
     return SYNERGIES.filter((s) => this.activeSynergies.has(s.key));
   }
 
+  getOwnedSkills(): { skill: SkillDef; level: number }[] {
+    return SKILLS
+      .map((skill) => ({ skill, level: this.getLevel(skill.key) }))
+      .filter((entry) => entry.level > 0)
+      .sort((a, b) => b.level - a.level || a.skill.name.localeCompare(b.skill.name, 'zh-CN'));
+  }
+
+  getBuildProgress(): BuildProgress[] {
+    return BUILD_PATHS.map((path) => {
+      const completed = path.goals.reduce(
+        (sum, goal) => sum + Math.min(this.getLevel(goal.skill), goal.level) / goal.level,
+        0,
+      );
+      const ultimate = SYNERGIES.find((synergy) => synergy.key === path.ultimateSynergy);
+      return {
+        key: path.key,
+        name: path.name,
+        color: path.color,
+        colorHex: path.colorHex,
+        tagline: path.tagline,
+        progress: path.goals.length > 0 ? completed / path.goals.length : 0,
+        ultimateName: ultimate?.name ?? '',
+        ultimateActive: this.hasSynergy(path.ultimateSynergy),
+      };
+    });
+  }
+
   // ── 技能刷新 ──
 
   /** 随机抽取 count 个技能选择 */
-  rollChoices(count = 3): RollChoice[] {
+  rollChoices(count = 3, minimumRarity: Rarity = 'common'): RollChoice[] {
     interface AvailableItem { skill: SkillDef; currentLevel: number }
     const available: AvailableItem[] = [];
+    const rarityRank: Record<Rarity, number> = { common: 0, rare: 1, epic: 2, legendary: 3 };
 
     for (const skill of SKILLS) {
       const lv = this.getLevel(skill.key);
       if (lv >= skill.maxLevel) continue;
       // repair 类技能（maxLevel=99）限制最多买3次
       if (skill.key === 'emergencyRepair' && lv >= 3) continue;
+      if (rarityRank[skill.rarity] < rarityRank[minimumRarity]) continue;
       available.push({ skill, currentLevel: lv });
     }
 
@@ -304,7 +357,7 @@ export class SkillSystem {
     const pool = [...weighted];
     while (result.length < count && pool.length > 0) {
       const totalWeight = pool.reduce((s, w) => s + w.weight, 0);
-      let r = Math.random() * totalWeight;
+      let r = this.random() * totalWeight;
       let picked = -1;
       for (let i = 0; i < pool.length; i++) {
         r -= pool[i].weight;
@@ -316,8 +369,7 @@ export class SkillSystem {
     }
 
     // 排序：稀有度高的在前
-    const rarityOrder: Record<Rarity, number> = { common: 0, rare: 1, epic: 2, legendary: 3 };
-    result.sort((a, b) => rarityOrder[b.skill.rarity] - rarityOrder[a.skill.rarity]);
+    result.sort((a, b) => rarityRank[b.skill.rarity] - rarityRank[a.skill.rarity]);
 
     return result;
   }
