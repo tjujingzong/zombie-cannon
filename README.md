@@ -2,7 +2,7 @@
 
 类"向僵尸开炮"的竖屏塔防射击 H5 小游戏：炮台自动索敌开火（按住屏幕可手动瞄准），僵尸成波推进攻击基地墙；击杀掉金币，波次间三选一局内强化，通关解锁关卡、赚金币做永久养成。
 
-[下载最新版 Android APK](https://github.com/tjujingzong/zombie-cannon/releases/latest) · [在线游玩](https://tjujingzong.github.io/zombie-cannon/)
+[直接下载 Android APK](https://github.com/tjujingzong/zombie-cannon/releases/download/android-latest/zombie-cannon-android.apk) · [在线游玩](https://tjujingzong.github.io/zombie-cannon/)
 
 - 技术栈：Phaser 3 + TypeScript + Vite
 - 部署：GitHub Pages（自动 CI）
@@ -48,11 +48,9 @@ npm run build      # 类型检查 + 产物输出到 dist/
 
 ### 从 GitHub 下载
 
-正式版本发布在 [GitHub Releases](https://github.com/tjujingzong/zombie-cannon/releases/latest)，下载名称类似
-`zombie-cannon-v0.1.0.apk` 的文件后即可安装。首次侧载时，Android 会要求允许浏览器或文件管理器“安装未知应用”。
+每次推送 `main` 时，`Build Android APK` 工作流都会更新 [Android 最新体验版](https://github.com/tjujingzong/zombie-cannon/releases/tag/android-latest)。点击页面 Assets 下的 `zombie-cannon-android.apk` 即可下载；也可以使用 README 顶部的固定直链。这个体验包由 Android 调试证书签名，可直接侧载安装，不会过期。
 
-每次推送 `main` 时，`Build Android APK` 工作流还会生成一个保留 30 天的测试 APK，可在对应 Actions 运行的
-Artifacts 区下载；带 `v*` 的 Git 标签则会构建签名正式版，并自动附加到 GitHub Release。
+首次侧载时，Android 会要求允许浏览器或文件管理器“安装未知应用”。配置正式签名后，带 `v*` 的 Git 标签会构建签名正式版，并自动附加到独立的 GitHub Release，文件名类似 `zombie-cannon-v0.1.0.apk`。
 
 ### 本地构建测试 APK
 
