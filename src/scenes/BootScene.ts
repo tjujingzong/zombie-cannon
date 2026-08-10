@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { DAMAGE_ELEMENTS, ZOMBIE_DEFINITIONS } from '../data/balance';
 import { AudioSystem } from '../systems/AudioSystem';
 
 /**
@@ -11,10 +12,11 @@ export class BootScene extends Phaser.Scene {
 
   preload(): void {
     this.load.image('art_zombie_boss_v1', 'assets/generated/zombies/zombie-boss-v1.png');
-    this.load.image('art_elite_swift_v1', 'assets/generated/zombies/elite-swift-v1.png');
-    this.load.image('art_elite_armored_v1', 'assets/generated/zombies/elite-armored-v1.png');
-    this.load.image('art_elite_regenerating_v1', 'assets/generated/zombies/elite-regenerating-v1.png');
-    this.load.image('art_elite_splitting_v1', 'assets/generated/zombies/elite-splitting-v1.png');
+    this.load.image('art_zombie_boss_inferno_v2', 'assets/generated/zombies/zombie-boss-inferno-v2.png');
+    this.load.image('art_zombie_boss_glacier_v2', 'assets/generated/zombies/zombie-boss-glacier-v2.png');
+    this.load.image('art_zombie_boss_tempest_v2', 'assets/generated/zombies/zombie-boss-tempest-v2.png');
+    this.load.image('art_zombie_boss_plague_v2', 'assets/generated/zombies/zombie-boss-plague-v2.png');
+    this.load.image('art_zombie_boss_void_v2', 'assets/generated/zombies/zombie-boss-void-v2.png');
     this.load.image('art_ultimate_elemental_cataclysm_v1', 'assets/generated/skills/ultimate-elemental-cataclysm-v1.png');
     this.load.image('art_ultimate_infinite_barrage_v1', 'assets/generated/skills/ultimate-infinite-barrage-v1.png');
     this.load.image('art_ultimate_orbital_command_v1', 'assets/generated/skills/ultimate-orbital-command-v1.png');
@@ -266,6 +268,45 @@ export class BootScene extends Phaser.Scene {
       g.lineStyle(3, 0xff8a80, 0.8).lineBetween(cx, h * 0.53, cx + w * 0.34, h * 0.72);
       g.fillStyle(0xffcdd2, 0.75).fillCircle(cx - w * 0.08, h * 0.5, 3);
     });
+
+    // 元素变体仍使用同一套程序化骨架，只通过轮廓附件、胸前元素徽记和配色区分。
+    Object.values(ZOMBIE_DEFINITIONS).forEach((definition) => {
+      if (this.textures.exists(definition.texture)) return;
+      this.drawZombie(
+        definition.texture,
+        definition.palette.clothes,
+        definition.palette.skin,
+        64,
+        (g, cx, h, w) => {
+          const accent = definition.palette.accent;
+          g.fillStyle(accent, 0.9).fillCircle(cx, h * 0.48, w * 0.115);
+          g.lineStyle(3, accent, 0.82).strokeCircle(cx, h * 0.48, w * 0.18);
+          const element = DAMAGE_ELEMENTS[definition.element];
+          g.fillStyle(0x071015, 0.86).fillRoundedRect(cx - 9, h * 0.43, 18, 18, 4);
+          g.fillStyle(element.color, 1).fillCircle(cx, h * 0.48, 5);
+
+          if (definition.archetype === 'fast' || definition.archetype === 'leaper') {
+            g.fillStyle(accent, 0.9)
+              .fillTriangle(cx - w * 0.46, h * 0.66, cx - w * 0.22, h * 0.59, cx - w * 0.28, h * 0.75)
+              .fillTriangle(cx + w * 0.46, h * 0.66, cx + w * 0.22, h * 0.59, cx + w * 0.28, h * 0.75);
+          } else if (definition.archetype === 'tank' || definition.archetype === 'shield') {
+            g.lineStyle(5, accent, 0.8).strokeRoundedRect(cx - w * 0.42, h * 0.31, w * 0.84, h * 0.43, 8);
+          } else if (definition.archetype === 'spitter' || definition.archetype === 'exploder') {
+            g.fillStyle(accent, 0.72).fillCircle(cx + w * 0.23, h * 0.55, w * 0.16);
+          } else if (definition.archetype === 'healer' || definition.archetype === 'summoner') {
+            g.lineStyle(3, accent, 0.9).strokeCircle(cx, h * 0.1, w * 0.2);
+          } else if (definition.archetype === 'burrower') {
+            g.fillStyle(accent, 0.9)
+              .fillTriangle(cx - w * 0.36, h * 0.72, cx - w * 0.58, h * 0.82, cx - w * 0.26, h * 0.8)
+              .fillTriangle(cx + w * 0.36, h * 0.72, cx + w * 0.58, h * 0.82, cx + w * 0.26, h * 0.8);
+          } else if (definition.archetype === 'boss') {
+            g.fillStyle(accent, 0.95)
+              .fillTriangle(cx - 18, h * 0.12, cx - 9, 0, cx, h * 0.12)
+              .fillTriangle(cx, h * 0.12, cx + 9, 0, cx + 18, h * 0.12);
+          }
+        },
+      );
+    });
   }
 
   private makeCoin(): void {
@@ -406,6 +447,12 @@ export class BootScene extends Phaser.Scene {
       g.lineBetween(8, 20, 56, 44);
       g.lineBetween(8, 44, 56, 20);
       g.fillStyle(0xe0f7fa, 1).fillCircle(32, 32, 7);
+    });
+    mk('icon_toxic', (g) => {
+      g.fillStyle(0x33691e, 1).fillCircle(32, 34, 22);
+      g.fillStyle(0x9ccc65, 1).fillCircle(24, 29, 7).fillCircle(41, 37, 9).fillCircle(31, 45, 6);
+      g.fillStyle(0xe6ee9c, 0.95).fillCircle(22, 26, 3).fillCircle(38, 33, 3);
+      g.fillStyle(0x263238, 1).fillCircle(22, 33, 3).fillCircle(42, 30, 3).fillTriangle(32, 34, 27, 42, 37, 42);
     });
     mk('icon_execute', (g) => {
       g.lineStyle(5, 0xff5252, 1).strokeCircle(32, 32, 20);
@@ -659,10 +706,39 @@ export class BootScene extends Phaser.Scene {
       g.lineStyle(3, 0x4de7ff, 0.9).lineBetween(10, 48, 52, 16);
       g.lineStyle(2, 0xff4fd8, 0.8).lineBetween(14, 18, 52, 46);
     });
+    mk('icon_bg_aurora', (g) => {
+      g.fillGradientStyle(0x07141c, 0x07141c, 0x164759, 0x164759, 1).fillRoundedRect(4, 6, 56, 52, 8);
+      g.lineStyle(5, 0x80deea, 0.65).arc(32, 38, 30, 3.5, 5.9);
+      g.lineStyle(3, 0x69f0ae, 0.7).arc(32, 44, 34, 3.45, 5.95);
+      g.fillStyle(0xe0f7fa, 0.85).fillTriangle(8, 54, 26, 32, 38, 54).fillTriangle(28, 54, 45, 28, 58, 54);
+    });
+    mk('icon_bg_eclipse', (g) => {
+      g.fillGradientStyle(0x120c1d, 0x120c1d, 0x38224a, 0x38224a, 1).fillRoundedRect(4, 6, 56, 52, 8);
+      g.fillStyle(0xb388ff, 0.65).fillCircle(32, 29, 18);
+      g.fillStyle(0x09070d, 1).fillCircle(36, 25, 16);
+      g.lineStyle(3, 0xce93d8, 0.8).lineBetween(10, 52, 54, 42);
+    });
     mk('icon_floodlight', (g) => {
       g.fillStyle(0x78909c, 1).fillRect(29, 26, 6, 32);
       g.fillStyle(0xffd54a, 1).fillRoundedRect(17, 10, 30, 20, 5);
       g.fillStyle(0xffffff, 0.55).fillTriangle(20, 30, 44, 30, 54, 58);
+    });
+    mk('icon_banners', (g) => {
+      g.fillStyle(0x78909c, 1).fillRect(13, 7, 5, 52).fillRect(46, 7, 5, 52);
+      g.fillStyle(0xb71c1c, 1).fillTriangle(18, 12, 18, 43, 42, 26).fillTriangle(46, 12, 46, 43, 22, 26);
+      g.fillStyle(0xffd54a, 1).fillCircle(32, 26, 6);
+    });
+    mk('icon_radar', (g) => {
+      g.fillStyle(0x10251f, 1).fillCircle(32, 32, 27);
+      g.lineStyle(3, 0x69f0ae, 0.9).strokeCircle(32, 32, 23).strokeCircle(32, 32, 13);
+      g.lineStyle(4, 0xa7ffeb, 1).lineBetween(32, 32, 49, 17);
+      g.fillStyle(0xffd54a, 1).fillCircle(21, 42, 4);
+    });
+    mk('icon_memorial', (g) => {
+      g.fillStyle(0x546e7a, 1).fillRoundedRect(17, 20, 30, 38, 5);
+      g.fillStyle(0x90a4ae, 1).fillTriangle(32, 5, 21, 23, 43, 23);
+      g.fillStyle(0xffb74d, 1).fillTriangle(32, 15, 25, 32, 32, 28).fillTriangle(32, 15, 39, 32, 32, 28);
+      g.fillStyle(0xffd54a, 1).fillCircle(32, 34, 5);
     });
     mk('icon_support_sentry', (g) => {
       g.fillStyle(0x455a64, 1).fillRoundedRect(10, 40, 44, 16, 5);
@@ -679,6 +755,24 @@ export class BootScene extends Phaser.Scene {
       g.fillStyle(0x455a64, 1).fillRoundedRect(10, 45, 44, 13, 4);
       g.lineStyle(9, 0x90a4ae, 1).lineBetween(25, 43, 42, 14);
       g.fillStyle(0xff6d00, 1).fillCircle(45, 10, 7);
+    });
+    mk('icon_support_cryo', (g) => {
+      g.fillStyle(0x455a64, 1).fillRoundedRect(12, 46, 40, 12, 4);
+      g.fillStyle(0x80deea, 0.35).fillCircle(32, 28, 22);
+      g.lineStyle(4, 0xe0f7fa, 1).lineBetween(32, 8, 32, 48).lineBetween(14, 19, 50, 39).lineBetween(14, 39, 50, 19);
+    });
+    mk('icon_support_plasma', (g) => {
+      g.fillStyle(0x455a64, 1).fillRoundedRect(12, 46, 40, 12, 4);
+      g.fillStyle(0xce93d8, 0.4).fillCircle(32, 27, 21);
+      g.fillStyle(0xffffff, 1).fillRect(29, 7, 6, 42);
+      g.fillStyle(0xea80fc, 0.9).fillRect(24, 11, 16, 34);
+    });
+    mk('icon_support_drones', (g) => {
+      g.fillStyle(0x455a64, 1).fillRoundedRect(8, 48, 48, 10, 4);
+      for (const x of [16, 32, 48]) {
+        g.fillStyle(0x90a4ae, 1).fillTriangle(x - 9, 28, x, 18, x + 9, 28);
+        g.fillStyle(0x69f0ae, 1).fillCircle(x, 27, 4);
+      }
     });
   }
 

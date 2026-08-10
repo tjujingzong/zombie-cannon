@@ -1,12 +1,14 @@
 import Phaser from 'phaser';
-import { BULLET_SPEED, GAME_HEIGHT, GAME_WIDTH } from '../data/balance';
+import { BULLET_SPEED, GAME_HEIGHT, GAME_WIDTH, type DamageElement } from '../data/balance';
 import type { DamageSourceKey } from '../data/combat';
 
 export interface BulletProfile {
   damageSource?: DamageSourceKey;
+  element?: DamageElement;
   cryoBurst?: boolean;
   shrapnelOnKill?: boolean;
   volatileCore?: boolean;
+  arcBurst?: boolean;
   knockback?: number;
   fragment?: boolean;
   tint?: number;
@@ -24,11 +26,14 @@ export class Bullet extends Phaser.Physics.Arcade.Sprite {
   hitCount = 0;
   acidMode = false;
   damageSource: DamageSourceKey = 'bullet';
+  element: DamageElement = 'kinetic';
   cryoBurst = false;
   cryoTriggered = false;
   shrapnelOnKill = false;
   volatileCore = false;
   volatileTriggered = false;
+  arcBurst = false;
+  arcTriggered = false;
   knockback = 0;
   fragment = false;
   private trailTimer = 0;
@@ -54,11 +59,14 @@ export class Bullet extends Phaser.Physics.Arcade.Sprite {
     this.isCrit = isCrit;
     this.hitCount = 0;
     this.damageSource = profile.damageSource ?? 'bullet';
+    this.element = profile.element ?? 'kinetic';
     this.cryoBurst = profile.cryoBurst ?? false;
     this.cryoTriggered = false;
     this.shrapnelOnKill = profile.shrapnelOnKill ?? false;
     this.volatileCore = profile.volatileCore ?? false;
     this.volatileTriggered = false;
+    this.arcBurst = profile.arcBurst ?? false;
+    this.arcTriggered = false;
     this.knockback = profile.knockback ?? 0;
     this.fragment = profile.fragment ?? false;
     this.setRotation(angle + Math.PI / 2);
@@ -86,11 +94,14 @@ export class Bullet extends Phaser.Physics.Arcade.Sprite {
   recycle(): void {
     this.acidMode = false;
     this.damageSource = 'bullet';
+    this.element = 'kinetic';
     this.cryoBurst = false;
     this.cryoTriggered = false;
     this.shrapnelOnKill = false;
     this.volatileCore = false;
     this.volatileTriggered = false;
+    this.arcBurst = false;
+    this.arcTriggered = false;
     this.knockback = 0;
     this.fragment = false;
     this.disableBody(true, true);

@@ -5,6 +5,8 @@ import {
   KILL_STREAK_THRESHOLDS,
   PRE_GAME_FREE_SKILLS, PRE_GAME_MONSTER_MULTIPLIER,
   CONDUCTOR_AURA_RANGE, CONDUCTOR_DAMAGE_REDUCTION,
+  ZOMBIE_TYPES,
+  type DamageElement,
 } from '../data/balance';
 import { LEVELS, LevelConfig, getLevel } from '../data/levels';
 import { AudioSystem } from '../systems/AudioSystem';
@@ -363,7 +365,7 @@ export class GameScene extends Phaser.Scene {
     this.levelName = this.isEndlessMode ? '末日无尽' : this.level.name;
     this.wallMaxHp = Math.max(1, Math.round(MetaUpgrades.wallMaxHp() * this.challengeContractDef.wallHpMultiplier));
     this.wallHp = this.wallMaxHp;
-    this.wallShield = 0;
+    this.wallShield = MetaUpgrades.initialShield();
 
     this.createBackground();
 
@@ -379,6 +381,12 @@ export class GameScene extends Phaser.Scene {
     this.skills.onRepair = (ratio) => {
       this.wallHp = Math.min(this.wallMaxHp, this.wallHp + Math.round(this.wallMaxHp * ratio));
       AudioSystem.play('heal');
+    };
+    this.skills.onWallCapacity = (ratio) => {
+      const gain = Math.max(1, Math.round(this.wallMaxHp * ratio));
+      this.wallMaxHp += gain;
+      this.wallHp += gain;
+      AudioSystem.play('upgrade', { volume: 0.5 });
     };
     this.skills.onSynergyActivated = (syn) => {
       this.runSynergiesActivated++;
@@ -471,7 +479,7 @@ export class GameScene extends Phaser.Scene {
       const m = mObj as Bullet;
       const z = zObj as Zombie;
       if (!m.active || !z.active || z.hp <= 0 || z.dying) return;
-      const died = z.takeDamage(m.damage);
+      const died = this.dealDamage(z, m.damage, m.element, true);
       const source = (m.getData('damageSource') as DamageSourceKey | undefined) ?? 'missile';
       this.recordDamage(source, z);
       this.showDamageText(z.x, z.y - 30, Math.round(z.lastDamageTaken), false);
@@ -563,6 +571,10 @@ export class GameScene extends Phaser.Scene {
       pal = { top: 0x24120f, bottom: 0x5a2a18, road: 0xff7a32, ground: 0x140a08 };
     } else if (equippedBackground === 'bg_neon') {
       pal = { top: 0x0a1020, bottom: 0x17384a, road: 0x4de7ff, ground: 0x070b13 };
+    } else if (equippedBackground === 'bg_aurora') {
+      pal = { top: 0x07141c, bottom: 0x164759, road: 0x80deea, ground: 0x071117 };
+    } else if (equippedBackground === 'bg_eclipse') {
+      pal = { top: 0x120c1d, bottom: 0x38224a, road: 0xb388ff, ground: 0x0b0710 };
     }
     const bg = this.add.graphics().setDepth(-10);
     bg.fillGradientStyle(pal.top, pal.top, pal.bottom, pal.bottom, 1);
@@ -630,11 +642,26 @@ export class GameScene extends Phaser.Scene {
     bg.fillRect(GAME_WIDTH - 62, WALL_Y - 170, 8, 170);
     bg.fillRect(GAME_WIDTH - 112, WALL_Y - 170, 58, 7);
     bg.fillCircle(GAME_WIDTH - 112, WALL_Y - 167, 13);
-    if (SaveManager.getEquippedArmoryItem('decor') === 'decor_floodlights') {
+    const equippedDecor = SaveManager.getEquippedArmoryItem('decor');
+    if (equippedDecor === 'decor_floodlights') {
       bg.fillStyle(0xfff3b0, 0.075).fillTriangle(102, WALL_Y - 198, 250, WALL_Y, 24, WALL_Y);
       bg.fillStyle(0xb3e5fc, 0.07).fillTriangle(GAME_WIDTH - 112, WALL_Y - 158, GAME_WIDTH - 22, WALL_Y, GAME_WIDTH - 280, WALL_Y);
       bg.fillStyle(0xffd54a, 0.8).fillCircle(102, WALL_Y - 207, 8);
       bg.fillStyle(0x80d8ff, 0.8).fillCircle(GAME_WIDTH - 112, WALL_Y - 167, 8);
+    } else if (equippedDecor === 'decor_banners') {
+      bg.fillStyle(0x263238, 1).fillRect(42, WALL_Y - 152, 7, 152).fillRect(GAME_WIDTH - 49, WALL_Y - 152, 7, 152);
+      bg.fillStyle(0xb71c1c, 0.9)
+        .fillTriangle(49, WALL_Y - 146, 49, WALL_Y - 74, 126, WALL_Y - 118)
+        .fillTriangle(GAME_WIDTH - 49, WALL_Y - 146, GAME_WIDTH - 49, WALL_Y - 74, GAME_WIDTH - 126, WALL_Y - 118);
+      bg.fillStyle(0xffd54a, 0.8).fillCircle(78, WALL_Y - 113, 8).fillCircle(GAME_WIDTH - 78, WALL_Y - 113, 8);
+    } else if (equippedDecor === 'decor_radar') {
+      const radar = this.add.image(GAME_WIDTH - 88, WALL_Y + 86, 'icon_radar').setDepth(11).setScale(0.82);
+      this.tweens.add({ targets: radar, angle: 360, duration: 2600, repeat: -1, ease: 'Linear' });
+      bg.lineStyle(3, 0x69f0ae, 0.28).strokeCircle(GAME_WIDTH - 88, WALL_Y + 86, 54);
+    } else if (equippedDecor === 'decor_memorial') {
+      const memorial = this.add.image(GAME_WIDTH / 2, WALL_Y + 82, 'icon_memorial').setDepth(11).setScale(0.92);
+      this.tweens.add({ targets: memorial, alpha: 0.62, duration: 720, yoyo: true, repeat: -1 });
+      bg.fillStyle(0xffb74d, 0.08).fillCircle(GAME_WIDTH / 2, WALL_Y + 72, 82);
     }
     // 基地常亮探照灯把墙前区域从背景中切出来。
     bg.fillStyle(0xffe082, 0.035).fillTriangle(70, WALL_Y, 245, WALL_Y - 370, 330, WALL_Y);
@@ -729,9 +756,15 @@ export class GameScene extends Phaser.Scene {
   private createSupportEmplacement(): void {
     const support = SaveManager.getEquippedArmoryItem('support');
     if (support === 'none') return;
-    const icon = support === 'support_sentry'
-      ? 'icon_support_sentry'
-      : support === 'support_tesla' ? 'icon_support_tesla' : 'icon_support_mortar';
+    const icons: Record<string, string> = {
+      support_sentry: 'icon_support_sentry',
+      support_tesla: 'icon_support_tesla',
+      support_mortar: 'icon_support_mortar',
+      support_cryo: 'icon_support_cryo',
+      support_plasma: 'icon_support_plasma',
+      support_drones: 'icon_support_drones',
+    };
+    const icon = icons[support] ?? 'icon_support_sentry';
     this.add.image(112, WALL_Y + 95, icon).setDepth(10).setScale(0.9);
     const pad = this.add.graphics().setDepth(9);
     pad.fillStyle(0x17252d, 1).fillRoundedRect(64, WALL_Y + 120, 96, 24, 7);
@@ -742,14 +775,22 @@ export class GameScene extends Phaser.Scene {
     const support = SaveManager.getEquippedArmoryItem('support');
     if (support === 'none' || alive.length === 0) return;
     this.armorySupportTimer += dt;
-    const interval = support === 'support_sentry' ? 0.72 : support === 'support_tesla' ? 1.8 : 3.1;
+    const intervals: Record<string, number> = {
+      support_sentry: 0.72,
+      support_tesla: 1.8,
+      support_mortar: 3.1,
+      support_cryo: 2.35,
+      support_plasma: 2.75,
+      support_drones: 1.15,
+    };
+    const interval = intervals[support] ?? 1.5;
     if (this.armorySupportTimer < interval) return;
     this.armorySupportTimer = 0;
 
     if (support === 'support_sentry') {
       const target = [...alive].sort((a, b) => b.y - a.y)[0];
       this.supportGraphics.lineStyle(4, 0xffd54a, 0.9).lineBetween(112, WALL_Y + 50, target.x, target.y);
-      const died = target.takeDamage(this.skills.damage * 0.55);
+      const died = this.dealDamage(target, this.skills.damage * 0.55, 'kinetic');
       this.recordDamage('support', target);
       if (died) this.killZombie(target);
       this.time.delayedCall(70, () => this.supportGraphics.clear());
@@ -762,13 +803,55 @@ export class GameScene extends Phaser.Scene {
       let fromX = 112, fromY = WALL_Y + 50;
       for (const target of targets) {
         this.supportGraphics.lineStyle(5, 0x4fc3f7, 0.9).lineBetween(fromX, fromY, target.x, target.y);
-        const died = target.takeDamage(this.skills.damage * 0.48);
+        const died = this.dealDamage(target, this.skills.damage * 0.48, 'lightning');
         this.recordDamage('support', target);
         if (died) this.killZombie(target);
         fromX = target.x; fromY = target.y;
       }
       this.time.delayedCall(110, () => this.supportGraphics.clear());
       AudioSystem.play('lightning', { volume: 0.45 });
+      return;
+    }
+
+    if (support === 'support_cryo') {
+      const anchor = [...alive].sort((a, b) => b.y - a.y)[0];
+      const targets = alive.filter((target) =>
+        Phaser.Math.Distance.Between(anchor.x, anchor.y, target.x, target.y) <= 155);
+      const pulse = this.add.image(anchor.x, anchor.y, 'shockwave')
+        .setDepth(13).setTint(0x80deea).setScale(0.32).setAlpha(0.85);
+      this.tweens.add({ targets: pulse, scale: 1.55, alpha: 0, duration: 360, onComplete: () => pulse.destroy() });
+      targets.forEach((target) => {
+        const died = this.dealDamage(target, this.skills.damage * 0.5, 'frost', true);
+        this.recordDamage('support', target);
+        if (died) this.killZombie(target);
+        else target.applySlow(0.38, 2.6);
+      });
+      AudioSystem.play('hit', { volume: 0.4 });
+      return;
+    }
+
+    if (support === 'support_plasma') {
+      const target = [...alive].sort((a, b) => (b.hp + b.shield) - (a.hp + a.shield))[0];
+      this.supportGraphics.lineStyle(12, 0xce93d8, 0.2).lineBetween(112, WALL_Y + 50, target.x, target.y);
+      this.supportGraphics.lineStyle(4, 0xffffff, 0.95).lineBetween(112, WALL_Y + 50, target.x, target.y);
+      const died = this.dealDamage(target, this.skills.damage * 1.65, 'energy');
+      this.recordDamage('support', target);
+      if (died) this.killZombie(target);
+      this.time.delayedCall(120, () => this.supportGraphics.clear());
+      AudioSystem.play('crit', { volume: 0.5 });
+      return;
+    }
+
+    if (support === 'support_drones') {
+      const targets = [...alive].sort((a, b) => b.y - a.y).slice(0, 4);
+      targets.forEach((target) => {
+        this.supportGraphics.lineStyle(2, 0x69f0ae, 0.85).lineBetween(112, WALL_Y + 50, target.x, target.y);
+        const died = this.dealDamage(target, this.skills.damage * 0.34, 'kinetic');
+        this.recordDamage('support', target);
+        if (died) this.killZombie(target);
+      });
+      this.time.delayedCall(80, () => this.supportGraphics.clear());
+      AudioSystem.play('shoot', { volume: 0.3 });
       return;
     }
 
@@ -782,7 +865,7 @@ export class GameScene extends Phaser.Scene {
     for (const zombie of this.aliveZombies()) {
       const dist = Phaser.Math.Distance.Between(x, y, zombie.x, zombie.y);
       if (dist > 120) continue;
-      const died = zombie.takeDamage(damage * (1 - dist / 180));
+      const died = this.dealDamage(zombie, damage * (1 - dist / 180), 'explosive', true);
       this.recordDamage('support', zombie);
       if (died) this.killZombie(zombie);
     }
@@ -833,11 +916,15 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const triggered = this.companionProtocol === 'companion_hunter'
-      ? this.triggerCompanionHunter()
-      : this.companionProtocol === 'companion_vortex'
-        ? this.triggerCompanionVortex()
-        : this.triggerCompanionMedic();
+    let triggered = false;
+    switch (this.companionProtocol) {
+      case 'companion_hunter': triggered = this.triggerCompanionHunter(); break;
+      case 'companion_vortex': triggered = this.triggerCompanionVortex(); break;
+      case 'companion_medic': triggered = this.triggerCompanionMedic(); break;
+      case 'companion_bomber': triggered = this.triggerCompanionBomber(); break;
+      case 'companion_arc': triggered = this.triggerCompanionArc(); break;
+      case 'companion_guardian': triggered = this.triggerCompanionGuardian(); break;
+    }
     if (triggered) this.companionCharge = 0;
     this.refreshCompanionStatus();
   }
@@ -848,7 +935,7 @@ export class GameScene extends Phaser.Scene {
     const target = [...targets].sort((a, b) => {
       const score = (zombie: Zombie): number => zombie.y
         + (1 - zombie.hp / Math.max(1, zombie.maxHp)) * 230
-        + (zombie.zType === 'boss' ? 120 : 0)
+        + (zombie.isBoss ? 120 : 0)
         + (zombie.eliteAffix ? 65 : 0);
       return score(b) - score(a);
     })[0];
@@ -862,7 +949,7 @@ export class GameScene extends Phaser.Scene {
     this.companionGraphics.lineStyle(3, 0xffffff, 0.95)
       .lineBetween(this.companionDrone?.x ?? GAME_WIDTH - 108, this.companionDrone?.y ?? WALL_Y + 83, target.x, target.y);
     this.time.delayedCall(100, () => this.companionGraphics.clear());
-    const died = target.takeDamage(damage);
+    const died = this.dealDamage(target, damage, 'energy');
     this.recordDamage('companion', target);
     this.showCompanionFeedback(target.x, target.y - 38, `追猎 ${Math.round(target.lastDamageTaken)}`, 0xffd54a);
     this.companionTelemetry.hunterShots++;
@@ -902,7 +989,7 @@ export class GameScene extends Phaser.Scene {
     this.time.delayedCall(150, () => this.companionGraphics.clear());
     targets.forEach((target) => {
       target.x = Phaser.Math.Clamp(anchor.x + (target.x - anchor.x) * 0.48, 40, GAME_WIDTH - 40);
-      const died = target.takeDamage(this.skills.damage * 0.22);
+      const died = this.dealDamage(target, this.skills.damage * 0.22, 'gravity', true);
       this.recordDamage('companion', target);
       if (died) this.killZombie(target);
       else {
@@ -953,6 +1040,64 @@ export class GameScene extends Phaser.Scene {
     return true;
   }
 
+  private triggerCompanionBomber(): boolean {
+    const alive = this.aliveZombies();
+    if (alive.length === 0) return false;
+    let anchor = alive[0];
+    let bestCount = 0;
+    for (const candidate of alive) {
+      const count = alive.filter((target) =>
+        Phaser.Math.Distance.Between(candidate.x, candidate.y, target.x, target.y) <= 170).length;
+      if (count > bestCount) { bestCount = count; anchor = candidate; }
+    }
+    this.explosionEmitter.setPosition(anchor.x, anchor.y).setParticleTint(0xff8a65).explode(24);
+    const targets = alive.filter((target) =>
+      Phaser.Math.Distance.Between(anchor.x, anchor.y, target.x, target.y) <= 170);
+    targets.forEach((target) => {
+      const died = this.dealDamage(target, this.skills.damage * 0.92, 'explosive', true);
+      this.recordDamage('companion', target);
+      if (died) this.killZombie(target);
+    });
+    this.showCompanionFeedback(anchor.x, anchor.y - 52, `轰炸清场 ×${targets.length}`, 0xff8a65);
+    this.cameras.main.shake(160, 0.007);
+    AudioSystem.play('explosion', { volume: 0.58 });
+    return true;
+  }
+
+  private triggerCompanionArc(): boolean {
+    const targets = [...this.aliveZombies()].sort((a, b) => b.y - a.y).slice(0, 7);
+    if (targets.length === 0) return false;
+    let fromX = this.companionDrone?.x ?? GAME_WIDTH - 108;
+    let fromY = this.companionDrone?.y ?? WALL_Y + 83;
+    this.companionGraphics.clear();
+    targets.forEach((target, index) => {
+      this.companionGraphics.lineStyle(index === 0 ? 6 : 3, 0xffee58, 0.9)
+        .lineBetween(fromX, fromY, target.x, target.y);
+      const died = this.dealDamage(target, this.skills.damage * (0.78 - index * 0.055), 'lightning');
+      this.recordDamage('companion', target);
+      if (died) this.killZombie(target);
+      fromX = target.x; fromY = target.y;
+    });
+    this.time.delayedCall(150, () => this.companionGraphics.clear());
+    this.showCompanionFeedback(targets[0].x, targets[0].y - 52, `链闪 ×${targets.length}`, 0xffee58);
+    AudioSystem.play('lightning', { volume: 0.58 });
+    return true;
+  }
+
+  private triggerCompanionGuardian(): boolean {
+    const shieldCap = this.wallMaxHp * 0.75;
+    const before = this.wallShield;
+    this.wallShield = Math.min(shieldCap, this.wallShield + this.wallMaxHp * 0.12);
+    const targets = this.aliveZombies().filter((target) => WALL_Y - target.y <= 360);
+    targets.forEach((target) => target.applyKnockback(115 + this.skills.repulsionBonus));
+    const gained = Math.round(this.wallShield - before);
+    if (gained <= 0 && targets.length === 0) return false;
+    this.showShieldActivateEffect();
+    this.showCompanionFeedback(GAME_WIDTH / 2, WALL_Y - 42, `守护 +${gained} · 击退 ${targets.length}`, 0x80deea);
+    AudioSystem.play('wave', { volume: 0.5 });
+    return true;
+  }
+
   private showCompanionFeedback(x: number, y: number, message: string, color: number): void {
     const label = this.add.text(x, y, message, {
       fontFamily: FONT, fontSize: '21px', fontStyle: 'bold',
@@ -968,7 +1113,7 @@ export class GameScene extends Phaser.Scene {
   private updateConductorAuras(alive: Zombie[]): void {
     this.conductorGraphics.clear();
     for (const zombie of alive) zombie.setDamageReduction(0);
-    const conductors = alive.filter((zombie) => zombie.zType === 'conductor' && !zombie.dying);
+    const conductors = alive.filter((zombie) => zombie.isBehavior('conductor') && !zombie.dying);
     const pulse = 0.55 + Math.sin(this.time.now * 0.006) * 0.15;
     for (const conductor of conductors) {
       this.conductorGraphics.lineStyle(3, 0x4dd0e1, pulse).strokeCircle(
@@ -1029,7 +1174,7 @@ export class GameScene extends Phaser.Scene {
         zombie.x += ((well.x - zombie.x) / dist) * pull;
         zombie.y += ((well.y - zombie.y) / dist) * pull * 0.6;
         if (damageTick) {
-          const died = zombie.takeDamage(this.skills.gravityWellDamage);
+          const died = this.dealDamage(zombie, this.skills.gravityWellDamage, 'gravity', true);
           this.recordDamage('gravity', zombie);
           if (died) this.killZombie(zombie);
         }
@@ -1076,7 +1221,8 @@ export class GameScene extends Phaser.Scene {
       const dist = Phaser.Math.Distance.Between(x, y, zombie.x, zombie.y);
       if (dist > radius) continue;
       if (zombie.burrowed) zombie.forceSurface();
-      const died = zombie.takeDamage(this.skills.mineDamage * Math.max(0.35, 1 - dist / 180));
+      const mineFalloff = Math.max(this.skills.clusterEdgeFloor, 1 - dist / 180);
+      const died = this.dealDamage(zombie, this.skills.mineDamage * mineFalloff, 'explosive', true);
       this.recordDamage('mine', zombie);
       if (!died && this.skills.hasSynergy('cryoMine')) zombie.applySlow(0.48, 3.2);
       if (died) this.killZombie(zombie);
@@ -1435,20 +1581,21 @@ export class GameScene extends Phaser.Scene {
     z.onBossPhase = (boss) => this.showBossPhaseChange(boss);
 
     // Boss 出生特效
-    if (type === 'boss') {
+    if (z.isBoss) {
       this.showBossSpawnEffect(z.x, z.y);
     }
     // 自爆者出场带闪烁
-    if (type === 'exploder') {
+    if (z.isBehavior('exploder')) {
       this.tweens.add({ targets: z, alpha: 0.7, duration: 120, yoyo: true, repeat: 2 });
     }
-    if (type === 'conductor') {
+    if (z.isBehavior('conductor')) {
       this.cameras.main.flash(90, 77, 208, 225, false);
     }
   }
 
   private rollEliteAffix(type: ZombieTypeKey): EliteAffix | null {
-    if (type === 'swarm' || type === 'boss') return null;
+    const archetype = ZOMBIE_TYPES[type].archetype;
+    if (archetype === 'swarm' || archetype === 'boss') return null;
     const affixes: EliteAffix[] = ['swift', 'armored', 'regenerating', 'splitting'];
     const activeEvent = this.battlefieldEvents.active;
     if (
@@ -1526,6 +1673,16 @@ export class GameScene extends Phaser.Scene {
       profile.knockback = 34;
       profile.tint = 0xffe082;
       profile.scale = 1.34;
+    } else if (this.behaviorLoadout.barrel === 'barrel_overclock') {
+      dmg *= 0.82;
+      profile.tint = 0xffca28;
+      profile.scale = 0.88;
+    } else if (this.behaviorLoadout.barrel === 'barrel_siege') {
+      dmg *= 2.55;
+      pierce += 1;
+      profile.volatileCore = true;
+      profile.tint = 0xff7043;
+      profile.scale = 1.42;
     }
 
     this.equipmentProjectileCount++;
@@ -1539,6 +1696,13 @@ export class GameScene extends Phaser.Scene {
       profile.volatileCore = true;
       profile.tint = 0xff7043;
       profile.scale = (profile.scale ?? 1) * 1.22;
+    } else if (this.behaviorLoadout.ammo === 'ammo_incendiary') {
+      profile.element = 'fire';
+      profile.tint = 0xff8a65;
+    } else if (this.behaviorLoadout.ammo === 'ammo_arc') {
+      profile.element = 'lightning';
+      profile.arcBurst = this.equipmentProjectileCount % 4 === 0;
+      profile.tint = 0xffee58;
     }
 
     b.fire(x, y, angle, dmg, pierce, isCrit, this.skills.ricochetCount, profile);
@@ -1591,6 +1755,12 @@ export class GameScene extends Phaser.Scene {
     } else if (this.behaviorLoadout.barrel === 'barrel_rail') {
       this.cannon.setFireProfile(0.56 * this.challengeContractDef.cannonFireRateMultiplier, false);
       barrelStatus = '重击穿透';
+    } else if (this.behaviorLoadout.barrel === 'barrel_overclock') {
+      this.cannon.setFireProfile(1.42 * this.challengeContractDef.cannonFireRateMultiplier, false);
+      barrelStatus = '恒定超频 +42%';
+    } else if (this.behaviorLoadout.barrel === 'barrel_siege') {
+      this.cannon.setFireProfile(0.38 * this.challengeContractDef.cannonFireRateMultiplier, false);
+      barrelStatus = '攻城爆破';
     } else {
       this.cannon.setFireProfile(0.88 * this.challengeContractDef.cannonFireRateMultiplier, false);
       barrelStatus = `侧翼 ${this.equipmentVolleyCount % 3}/3`;
@@ -1600,11 +1770,19 @@ export class GameScene extends Phaser.Scene {
       ? `冷凝 ${this.equipmentProjectileCount % 5}/5`
       : this.behaviorLoadout.ammo === 'ammo_volatile'
         ? `爆芯 ${this.equipmentProjectileCount % 6}/6`
-        : '击杀裂变';
+        : this.behaviorLoadout.ammo === 'ammo_incendiary'
+          ? '火焰灼烧'
+          : this.behaviorLoadout.ammo === 'ammo_arc'
+            ? `电弧 ${this.equipmentProjectileCount % 4}/4`
+            : '击杀裂变';
     const wallStatus = this.behaviorLoadout.wall === 'wall_salvage'
       ? '精英回收'
       : this.wallModuleCooldown > 0
-        ? `${this.behaviorLoadout.wall === 'wall_pulse' ? '电网' : '反射'} ${this.wallModuleCooldown.toFixed(1)}s`
+        ? `${this.behaviorLoadout.wall === 'wall_pulse'
+          ? '电网'
+          : this.behaviorLoadout.wall === 'wall_reflector'
+            ? '反射'
+            : this.behaviorLoadout.wall === 'wall_barrier' ? '壁垒' : '纳米'} ${this.wallModuleCooldown.toFixed(1)}s`
         : '防线就绪';
     const barrel = getBehaviorEquipment(this.behaviorLoadout.barrel);
     const ammo = getBehaviorEquipment(this.behaviorLoadout.ammo);
@@ -1614,13 +1792,38 @@ export class GameScene extends Phaser.Scene {
     this.behaviorEquipmentColor = barrel?.color ?? 0xce93d8;
   }
 
+  private dealDamage(
+    zombie: Zombie,
+    damage: number,
+    element: DamageElement,
+    areaDamage = false,
+  ): boolean {
+    let adjusted = damage * this.skills.getElementDamageMultiplier(element);
+    if (zombie.slowed) adjusted *= this.skills.shatterDamageMultiplier;
+    const burning = this.burnEffects.some((effect) => effect.zombie === zombie);
+    const corroded = this.corrosionEffects.some((effect) => effect.zombie === zombie);
+    if (burning || corroded) adjusted *= this.skills.heatExecutionMultiplier;
+    if (burning && corroded && this.skills.hasSynergy('toxicCombustion')) adjusted *= 1.32;
+    if (zombie.isBoss || zombie.eliteAffix) adjusted *= this.skills.eliteBossDamageMultiplier;
+    if (areaDamage) {
+      const crowdSteps = Math.min(4, Math.floor(this.aliveZombies().length / 10));
+      adjusted *= 1 + crowdSteps * this.skills.crowdDamagePerTen;
+    }
+    if (element === 'energy' && this.skills.hasSynergy('antimatterLens')) {
+      const insideWell = this.gravityWells.some((well) =>
+        Phaser.Math.Distance.Between(well.x, well.y, zombie.x, zombie.y) <= this.skills.gravityWellRadius);
+      if (insideWell) adjusted *= 1.35;
+    }
+    return zombie.takeDamage(adjusted, element, this.skills.weaknessBonus);
+  }
+
   private onBulletHit(bullet: Bullet, zombie: Zombie): void {
     if (!bullet.active || !zombie.active || zombie.hp <= 0 || zombie.dying) return;
 
     const hpRatio = zombie.hp / zombie.maxHp;
     const executing = this.skills.executionThreshold > 0 && hpRatio <= this.skills.executionThreshold;
     const hitDamage = bullet.damage * (executing ? this.skills.executionDamageMultiplier : 1);
-    const died = zombie.takeDamage(hitDamage);
+    const died = this.dealDamage(zombie, hitDamage, bullet.element);
     this.recordDamage(bullet.damageSource, zombie);
     const actualDmg = Math.round(zombie.lastDamageTaken);
     this.showDamageText(zombie.x, zombie.y - 30, actualDmg, bullet.isCrit);
@@ -1637,6 +1840,10 @@ export class GameScene extends Phaser.Scene {
       bullet.volatileTriggered = true;
       this.behaviorTelemetry.volatileBursts++;
       this.doEquipmentExplosion(zombie.x, zombie.y, bullet.damage * 0.68, 118, zombie);
+    }
+    if (bullet.arcBurst && !bullet.arcTriggered && !died) {
+      bullet.arcTriggered = true;
+      this.doChainLightning(zombie, 4);
     }
     if (executing) this.showShockwave(zombie.x, zombie.y);
 
@@ -1661,6 +1868,16 @@ export class GameScene extends Phaser.Scene {
     // 灼烧效果
     if (this.skills.burnDps > 0 && zombie.hp > 0) {
       this.applyBurn(zombie, this.skills.burnDps);
+    }
+    if (this.behaviorLoadout.ammo === 'ammo_incendiary' && zombie.hp > 0) {
+      this.applyBurn(zombie, this.skills.damage * 0.18);
+    }
+    if (this.skills.toxicDps > 0 && zombie.hp > 0) {
+      this.applyCorrosion(zombie, this.skills.toxicDps);
+    }
+    if (!died && zombie.hp > 0 && this.skills.stormCoilChance > 0
+      && Math.random() < this.skills.stormCoilChance) {
+      this.doChainLightning(zombie, 2 + this.skills.getLevel('stormCoil'));
     }
     if (!died && zombie.hp > 0 && this.skills.hasSynergy('thermalShock')) {
       this.triggerThermalShock(zombie);
@@ -1743,7 +1960,12 @@ export class GameScene extends Phaser.Scene {
       if (target === excluded || target.hp <= 0 || target.dying) continue;
       const dist = Phaser.Math.Distance.Between(x, y, target.x, target.y);
       if (dist > radius) continue;
-      const targetDied = target.takeDamage(damage * Math.max(0.32, 1 - dist / radius));
+      const targetDied = this.dealDamage(
+        target,
+        damage * Math.max(this.skills.clusterEdgeFloor, 1 - dist / radius),
+        'explosive',
+        true,
+      );
       this.recordDamage('equipment', target);
       if (targetDied) this.killZombie(target);
     }
@@ -1787,12 +2009,12 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private doChainLightning(source: Zombie): void {
+  private doChainLightning(source: Zombie, maxTargets = 4): void {
     const targets = this.aliveZombies()
       .filter((z) => z !== source && z.hp > 0)
       .sort((a, b) => Phaser.Math.Distance.Between(source.x, source.y, a.x, a.y)
         - Phaser.Math.Distance.Between(source.x, source.y, b.x, b.y))
-      .slice(0, 4);
+      .slice(0, maxTargets);
     let fromX = source.x;
     let fromY = source.y;
     for (const target of targets) {
@@ -1800,7 +2022,7 @@ export class GameScene extends Phaser.Scene {
       this.lightningGraphics.lineBetween(fromX, fromY, target.x, target.y);
       this.lightningGraphics.lineStyle(12, 0xffd54f, 0.18);
       this.lightningGraphics.lineBetween(fromX, fromY, target.x, target.y);
-      const died = target.takeDamage(this.skills.damage * 0.7);
+      const died = this.dealDamage(target, this.skills.damage * 0.7, 'lightning');
       this.recordDamage('lightning', target);
       if (died) this.killZombie(target);
       fromX = target.x;
@@ -1825,7 +2047,7 @@ export class GameScene extends Phaser.Scene {
     });
     for (const zombie of this.aliveZombies()) {
       if (Phaser.Math.Distance.Between(source.x, source.y, zombie.x, zombie.y) > radius) continue;
-      const died = zombie.takeDamage(damage);
+      const died = this.dealDamage(zombie, damage, 'explosive', true);
       this.recordDamage('explosion', zombie);
       zombie.applySlow(Math.min(this.skills.frostSlowMultiplier, 0.7), 1.2);
       if (died) this.killZombie(zombie);
@@ -1864,6 +2086,8 @@ export class GameScene extends Phaser.Scene {
         this.skills.damage * 1.5,
         0,
         false,
+        0,
+        { damageSource: 'missile', element: 'explosive' },
       );
       m.setScale(1.5);
       m.setTint(0xff4444);
@@ -1886,7 +2110,7 @@ export class GameScene extends Phaser.Scene {
   private fireAirSupport(): void {
     const alive = this.aliveZombies();
     if (alive.length === 0) return;
-    const priority = alive.filter((zombie) => zombie.zType === 'jammer');
+    const priority = alive.filter((zombie) => zombie.isBehavior('jammer'));
     for (let i = 0; i < this.skills.airSupportCount; i++) {
       const targetPool = priority.length > 0 ? priority : alive;
       const target = targetPool[Phaser.Math.Between(0, targetPool.length - 1)];
@@ -1896,7 +2120,9 @@ export class GameScene extends Phaser.Scene {
       const startY = WALL_Y + 78;
       const angle = Phaser.Math.Angle.Between(startX, startY, target.x, target.y);
       missile.setTexture('bullet');
-      missile.fire(startX, startY, angle, this.skills.damage * 1.05, 0, false);
+      missile.fire(startX, startY, angle, this.skills.damage * 1.05, 0, false, 0, {
+        damageSource: 'airSupport', element: 'energy',
+      });
       missile.setScale(1.2).setTint(0x4de7ff);
       missile.setData('target', target);
       missile.setData('homing', true);
@@ -1908,8 +2134,10 @@ export class GameScene extends Phaser.Scene {
   // ─── 灼烧系统 ───
 
   private burnEffects: { zombie: Zombie; dps: number; timer: number }[] = [];
+  private corrosionEffects: { zombie: Zombie; dps: number; timer: number }[] = [];
 
   private applyBurn(zombie: Zombie, dps: number): void {
+    if (zombie.isImmuneTo('fire')) return;
     // 刷新或叠加
     const existing = this.burnEffects.find((e) => e.zombie === zombie);
     if (existing) {
@@ -1929,7 +2157,7 @@ export class GameScene extends Phaser.Scene {
         continue;
       }
       const dmg = e.dps * dt;
-      const died = e.zombie.takeDamage(dmg);
+      const died = this.dealDamage(e.zombie, dmg, 'fire');
       this.recordDamage('burn', e.zombie);
       // 灼烧粒子
       if (Math.random() < 0.3) {
@@ -1942,11 +2170,20 @@ export class GameScene extends Phaser.Scene {
   // ─── 护盾系统 ───
 
   private updateWallShield(dt: number): void {
-    if (this.skills.shieldInterval === Infinity) return;
+    const emergencyReady = this.skills.emergencyBarrierAmount > 0
+      && this.wallMaxHp > 0
+      && this.wallHp / this.wallMaxHp <= 0.3;
+    const interval = this.skills.shieldInterval < Infinity
+      ? this.skills.shieldInterval
+      : emergencyReady ? 8 : Infinity;
+    if (interval === Infinity) return;
     this.shieldTimer += dt;
-    if (this.shieldTimer >= this.skills.shieldInterval && this.wallShield <= 0) {
+    if (this.shieldTimer >= interval && this.wallShield <= 0) {
       this.shieldTimer = 0;
-      this.wallShield = this.skills.shieldAmount;
+      this.wallShield = Math.max(
+        this.skills.hasSkill('energyShield') ? this.skills.shieldAmount : 0,
+        emergencyReady ? this.skills.emergencyBarrierAmount : 0,
+      );
       this.showShieldActivateEffect();
     }
   }
@@ -1964,11 +2201,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private addOverdriveCharge(zombie: Zombie): void {
-    let gain = zombie.zType === 'boss' ? 32 : zombie.zType === 'swarm' ? 1 : 4;
+    let gain = zombie.isBoss ? 32 : zombie.isBehavior('swarm') ? 1 : 4;
     if (this.battlefieldEvents.active?.def.key === 'infectionStorm' && this.eventGameplayStarted) {
-      gain += zombie.zType === 'swarm' ? 1 : 2;
+      gain += zombie.isBehavior('swarm') ? 1 : 2;
     }
-    this.grantOverdriveCharge(gain);
+    this.grantOverdriveCharge(gain * this.skills.overdriveGainMultiplier);
   }
 
   private grantOverdriveCharge(amount: number): void {
@@ -1983,6 +2220,35 @@ export class GameScene extends Phaser.Scene {
       }).setOrigin(0.5).setDepth(20);
       this.tweens.add({ targets: banner, y: 890, alpha: 0, duration: 900, onComplete: () => banner.destroy() });
       AudioSystem.play('overdrive', { volume: 0.55 });
+    }
+  }
+
+  private applyCorrosion(zombie: Zombie, dps: number): void {
+    if (zombie.isImmuneTo('toxic')) return;
+    const existing = this.corrosionEffects.find((effect) => effect.zombie === zombie);
+    if (existing) {
+      existing.dps = Math.max(existing.dps, dps);
+      existing.timer = 4;
+    } else {
+      this.corrosionEffects.push({ zombie, dps, timer: 4 });
+    }
+  }
+
+  private updateCorrosion(dt: number): void {
+    for (let index = this.corrosionEffects.length - 1; index >= 0; index--) {
+      const effect = this.corrosionEffects[index];
+      effect.timer -= dt;
+      if (effect.timer <= 0 || !effect.zombie.active || effect.zombie.hp <= 0) {
+        this.corrosionEffects.splice(index, 1);
+        continue;
+      }
+      const died = this.dealDamage(effect.zombie, effect.dps * dt, 'toxic');
+      this.recordDamage('toxic', effect.zombie);
+      if (Math.random() < 0.18) {
+        this.explosionEmitter.setPosition(effect.zombie.x, effect.zombie.y)
+          .setParticleTint(0x9ccc65).explode(1);
+      }
+      if (died) this.killZombie(effect.zombie);
     }
   }
 
@@ -2077,7 +2343,7 @@ export class GameScene extends Phaser.Scene {
       const projY = this.cannon.y + t * ly;
       const dist = Phaser.Math.Distance.Between(z.x, z.y, projX, projY);
       if (dist < 30) {
-        const died = z.takeDamage(dmg);
+        const died = this.dealDamage(z, dmg, 'energy');
         this.recordDamage('laser', z);
         if (died) this.killZombie(z);
       }
@@ -2110,7 +2376,13 @@ export class GameScene extends Phaser.Scene {
       if (!z.active || z.hp <= 0) continue;
       const dist = Phaser.Math.Distance.Between(x, y, z.x, z.y);
       if (dist < radius) {
-        const died = z.takeDamage(damage * (1 - dist / radius));
+        const element: DamageElement = source === 'gravity' ? 'gravity' : 'explosive';
+        const died = this.dealDamage(
+          z,
+          damage * Math.max(this.skills.clusterEdgeFloor, 1 - dist / radius),
+          element,
+          true,
+        );
         this.recordDamage(source, z);
         if (died) this.killZombie(z);
       }
@@ -2126,6 +2398,7 @@ export class GameScene extends Phaser.Scene {
     if (this.wallInvulnTimer > 0) return;
 
     dmg *= this.challengeContractDef.wallDamageMultiplier;
+    if (this.behaviorLoadout.wall === 'wall_barrier') dmg *= 0.88;
     this.triggerBehaviorWallModule(dmg);
 
     // 护盾吸收
@@ -2159,7 +2432,7 @@ export class GameScene extends Phaser.Scene {
           const d = Phaser.Math.Distance.Between(GAME_WIDTH / 2, WALL_Y, z.x, z.y);
           if (d < minD) { minD = d; nearest = z; }
         }
-        const died = nearest.takeDamage(dmg * this.skills.thornsDamage);
+        const died = this.dealDamage(nearest, dmg * this.skills.thornsDamage, 'kinetic');
         this.recordDamage('thorns', nearest);
         this.showDamageText(nearest.x, nearest.y - 20, Math.round(nearest.lastDamageTaken), false);
         if (died) this.killZombie(nearest);
@@ -2178,8 +2451,23 @@ export class GameScene extends Phaser.Scene {
 
   private triggerBehaviorWallModule(incomingDamage: number): void {
     if (this.wallModuleCooldown > 0) return;
+    if (this.behaviorLoadout.wall === 'wall_barrier') {
+      this.wallModuleCooldown = 9;
+      this.wallShield = Math.min(this.wallMaxHp * 0.55, this.wallShield + this.wallMaxHp * 0.07);
+      this.showShieldActivateEffect();
+      AudioSystem.play('wave', { volume: 0.35 });
+      return;
+    }
+    if (this.behaviorLoadout.wall === 'wall_nanites') {
+      this.wallModuleCooldown = 6;
+      const repair = Math.min(this.wallMaxHp - this.wallHp, Math.max(1, Math.round(this.wallMaxHp * 0.03)));
+      this.wallHp += repair;
+      if (repair > 0) this.showCompanionFeedback(GAME_WIDTH / 2, WALL_Y - 36, `纳米抢修 +${repair}`, 0x69f0ae);
+      AudioSystem.play('heal', { volume: 0.35 });
+      return;
+    }
     const nearWall = this.aliveZombies()
-      .filter((zombie) => WALL_Y - zombie.y <= 340)
+      .filter((zombie) => WALL_Y - zombie.y <= 340 + this.skills.repulsionBonus)
       .sort((a, b) => b.y - a.y);
     if (nearWall.length === 0) return;
 
@@ -2192,7 +2480,7 @@ export class GameScene extends Phaser.Scene {
       this.behaviorTelemetry.wallPulses++;
       targets = nearWall;
       damage = this.skills.damage * 1.05;
-      knockback = 96;
+      knockback = 96 + this.skills.repulsionBonus;
       tint = 0x64b5f6;
     } else if (this.behaviorLoadout.wall === 'wall_reflector') {
       this.wallModuleCooldown = 0.8;
@@ -2212,7 +2500,8 @@ export class GameScene extends Phaser.Scene {
       onComplete: () => pulse.destroy(),
     });
     targets.forEach((target) => {
-      const died = target.takeDamage(damage);
+      const wallElement: DamageElement = this.behaviorLoadout.wall === 'wall_pulse' ? 'lightning' : 'kinetic';
+      const died = this.dealDamage(target, damage, wallElement, true);
       this.recordDamage('equipment', target);
       if (died) this.killZombie(target);
       else target.applyKnockback(knockback);
@@ -2224,12 +2513,12 @@ export class GameScene extends Phaser.Scene {
   // ─── 击杀僵尸 ───
 
   private killZombie(zombie: Zombie): void {
-    const isBoss = zombie.zType === 'boss';
-    const isSwarm = zombie.zType === 'swarm';
+    const isBoss = zombie.isBoss;
+    const isSwarm = zombie.isBehavior('swarm');
     const killedElite = zombie.eliteAffix !== null;
     if (isBoss) this.runBossKills++;
     // 击杀爆破感：共享粒子发射器，尸潮时不会为每只敌人创建新对象
-    const particleCount = isBoss ? 40 : zombie.zType === 'swarm' ? 5 : 16;
+    const particleCount = isBoss ? 40 : isSwarm ? 5 : 16;
     this.bloodEmitter.setPosition(zombie.x, zombie.y);
     this.bloodEmitter.setParticleTint(isBoss ? 0xffd54a : 0x8bc34a);
     this.bloodEmitter.explode(particleCount);
@@ -2281,8 +2570,8 @@ export class GameScene extends Phaser.Scene {
       if (this.eventEliteKills >= this.eventEliteQuota) this.completeBattlefieldEvent('huntComplete');
     }
 
-    if (zombie.zType === 'splitter' || zombie.eliteAffix === 'splitting') {
-      const splitCount = zombie.zType === 'splitter' && zombie.eliteAffix === 'splitting' ? 4 : 2;
+    if (zombie.isBehavior('splitter') || zombie.eliteAffix === 'splitting') {
+      const splitCount = zombie.isBehavior('splitter') && zombie.eliteAffix === 'splitting' ? 4 : 2;
       for (let i = 0; i < splitCount; i++) {
         const offset = (i - (splitCount - 1) / 2) * 24;
         this.spawnZombie(
@@ -2306,6 +2595,7 @@ export class GameScene extends Phaser.Scene {
         zombie.coinValue
         * this.skills.coinMultiplier
         * this.challengeContractDef.coinMultiplier
+        * (killedElite || isBoss ? this.skills.eliteBountyMultiplier : 1)
         * (this.dailyChallenge?.modifier.key === 'eliteBounty' && killedElite ? 1.5 : 1),
       ) + MetaUpgrades.flatCoinBonus(),
     );
@@ -2323,7 +2613,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // 自爆者死亡爆炸
-    if (zombie.zType === 'exploder' && zombie.onExplode) {
+    if (zombie.isBehavior('exploder') && zombie.onExplode) {
       zombie.onExplode(zombie.x, zombie.y);
     }
 
@@ -2358,7 +2648,7 @@ export class GameScene extends Phaser.Scene {
 
   private createEmptyDamageTotals(): Record<DamageSourceKey, number> {
     return {
-      bullet: 0, burn: 0, explosion: 0, missile: 0, airSupport: 0,
+      bullet: 0, burn: 0, toxic: 0, explosion: 0, missile: 0, airSupport: 0,
       laser: 0, lightning: 0, gravity: 0, mine: 0, support: 0, thorns: 0,
       equipment: 0,
       companion: 0,
@@ -2561,6 +2851,7 @@ export class GameScene extends Phaser.Scene {
 
     const alive = this.aliveZombies();
     this.enemyCount = alive.length;
+    this.skills.setWallRatio(this.wallMaxHp > 0 ? this.wallHp / this.wallMaxHp : 0);
     this.updatePerformanceStats(dt, alive);
     this.hordeProgress = this.waveManager.hordeProgress;
     this.updateConductorAuras(alive);
@@ -2571,7 +2862,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const jammerCount = alive.reduce((count, zombie) => count + (zombie.zType === 'jammer' ? 1 : 0), 0);
+    const jammerCount = alive.reduce((count, zombie) => count + (zombie.isBehavior('jammer') ? 1 : 0), 0);
     const jammerMultiplier = Phaser.Math.Clamp(1 - jammerCount * 0.08, 0.65, 1);
     this.skills.setEnemyFireRateMultiplier(jammerMultiplier * this.eventFireRateMultiplier);
     this.updateBehaviorEquipment(dt, alive.length > 0);
@@ -2620,6 +2911,7 @@ export class GameScene extends Phaser.Scene {
 
     // 灼烧
     this.updateBurns(effectiveDt);
+    this.updateCorrosion(effectiveDt);
 
     // 护盾
     this.updateWallShield(effectiveDt);
@@ -2680,6 +2972,14 @@ export class GameScene extends Phaser.Scene {
       this.completeBattlefieldEvent('waveEnd');
       const clearedWave = this.waveManager.currentWave;
       this.runWavesCleared++;
+      if (this.skills.nanoRepairRatio > 0 && this.wallHp < this.wallMaxHp) {
+        const repair = Math.min(
+          this.wallMaxHp - this.wallHp,
+          Math.max(1, Math.round(this.wallMaxHp * this.skills.nanoRepairRatio)),
+        );
+        this.wallHp += repair;
+        this.showEventRewardFeedback(`纳米修复 +${repair}`, 0x69f0ae);
+      }
       if (this.waveManager.isLastWave) {
         this.applySlowMo(0.8, 0.3);
         this.time.delayedCall(450, () => this.endLevel(true));

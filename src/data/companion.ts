@@ -1,4 +1,10 @@
-export type CompanionProtocolKey = 'companion_hunter' | 'companion_vortex' | 'companion_medic';
+export type CompanionProtocolKey =
+  | 'companion_hunter'
+  | 'companion_vortex'
+  | 'companion_medic'
+  | 'companion_bomber'
+  | 'companion_arc'
+  | 'companion_guardian';
 
 export interface CompanionProtocolDef {
   key: CompanionProtocolKey;
@@ -29,6 +35,21 @@ export const COMPANION_PROTOCOLS: CompanionProtocolDef[] = [
     key: 'companion_medic', name: '急救协议', shortName: '急救',
     desc: '击杀蓄能；充满后俯冲抢修防线，同时补充一层临时护盾。',
     cost: 1000, icon: 'icon_repair', color: 0x69f0ae, threshold: 10, chargeSource: 'kill',
+  },
+  {
+    key: 'companion_bomber', name: '轰炸协议', shortName: '轰炸',
+    desc: '击杀蓄能；充满后锁定最密集尸群，投放高爆弹完成范围清场。',
+    cost: 1480, icon: 'icon_explosion', color: 0xff8a65, threshold: 12, chargeSource: 'kill',
+  },
+  {
+    key: 'companion_arc', name: '链闪协议', shortName: '链闪',
+    desc: '主炮命中蓄能；充满后释放强化电弧，连续打击最多七个目标。',
+    cost: 1620, icon: 'icon_chain', color: 0xffee58, threshold: 14, chargeSource: 'hit',
+  },
+  {
+    key: 'companion_guardian', name: '守护协议', shortName: '守护',
+    desc: '击杀蓄能；充满后展开相位护盾，并震退所有贴近防线的敌人。',
+    cost: 1750, icon: 'icon_shield', color: 0x80deea, threshold: 14, chargeSource: 'kill',
   },
 ];
 

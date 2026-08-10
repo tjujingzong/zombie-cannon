@@ -1,60 +1,65 @@
 # 僵尸炮台 Zombie Cannon
 
-类"向僵尸开炮"的竖屏塔防射击 H5 小游戏：炮台自动索敌开火（按住屏幕可手动瞄准），僵尸成波推进攻击基地墙；击杀掉金币，波次间三选一局内强化，通关解锁关卡、赚金币做永久养成。
+> 一款把“瞄准、爆发、清屏、再来一波”压缩进竖屏的末日塔防射击游戏。
 
-[直接下载 Android APK](https://github.com/tjujingzong/zombie-cannon/releases/download/android-latest/zombie-cannon-android.apk) · [在线游玩](https://tjujingzong.github.io/zombie-cannon/)
+[在线游玩](https://tjujingzong.github.io/zombie-cannon/) · [下载 Android APK](https://github.com/tjujingzong/zombie-cannon/releases/download/android-latest/zombie-cannon-android.apk) · [查看全部 Releases](https://github.com/tjujingzong/zombie-cannon/releases)
 
-- 技术栈：Phaser 3 + TypeScript + Vite
-- 部署：GitHub Pages（自动 CI）
-- 安卓：Capacitor 打包 WebView 应用
-- 美术/音效：统一的末日军械视觉与程序化音频，角色/技能纹理保留正式位图替换能力
+![Phaser 3](https://img.shields.io/badge/Phaser-3.85-2f855a) ![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178c6) ![Android](https://img.shields.io/badge/Android-APK-3ddc84) ![Enemies](https://img.shields.io/badge/Enemies-55-ef5350) ![Skills](https://img.shields.io/badge/Skills-48-ffca28)
 
-## 本地开发
+![战斗画面](pics/qa/16-art-pass-battle-wide.png)
+
+## 为什么它玩起来很解压
+
+《僵尸炮台》的核心不是慢慢磨血，而是让压力快速堆高，再用构筑爆发把整片尸潮清空。
+
+- **尸潮够密**：腐尸、突袭者、重甲、治疗、召唤和元素变体一起压向防线，画面始终有目标可打。
+- **反馈够爽**：多重炮管、穿透、弹射、连锁闪电、爆破、引力聚怪、暴击顿帧和屏震能叠成真正的清屏时刻。
+- **构筑有变化**：每波三选一、战前免费技能、29 个组合技、行为装备和伙伴协议共同决定这一局怎么赢。
+- **克制有意义**：八种伤害属性会真实参与伤害结算。打到免疫目标是 0 伤害，命中弱点则能获得 1.55 倍基础倍率。
+- **随时能开一局**：网页直接玩，Android APK 直接安装；关卡、无尽、每日挑战和行动任务共用同一份离线存档。
+
+## 内容规模
+
+| 系统 | 当前内容 |
+| --- | --- |
+| 关卡 | 50 关；1~10 关手工教学，11~50 关由确定性随机引擎生成；每 5 关进入 Boss 战 |
+| 敌人 | 55 类：18 个基础行为单位、32 个程序绘制元素变体、5 个正式立绘元素 Boss |
+| 元素 | 动能、火焰、寒冰、雷电、爆破、腐蚀、能量、引力；弱点 ×1.55、抗性 ×0.58、免疫 ×0 |
+| 技能 | 48 个局内技能、29 个组合技、过载主动爆发与四条终极构筑路线 |
+| 永久强化 | 12 项金币升级，覆盖攻击、攻速、暴击、穿透、元素克制、护盾、赏金与过载 |
+| 军械库 | 14 件背景、装饰和辅助武器；哨戒、特斯拉、迫击炮、寒潮、等离子与无人机均有独立战斗逻辑 |
+| 行为装备 | 炮管、弹药、城墙各 5 件，共 125 种三槽组合 |
+| 战术伙伴 | R-7 提供追猎、磁暴、急救、轰炸、链闪、守护 6 套协议 |
+| 长期玩法 | 每日挑战、种子化末日无尽、每周行动、军需奖励、挑战契约与终身成就 |
+
+普通僵尸保留原始 Phaser 程序绘制风格，确保大规模同屏时轻量且易读；只有 Boss 使用 ImageGen 正式位图。素材生产与验收规则见 [正式游戏素材规范](docs/generated-art-spec.md)。
+
+## Android 下载
+
+最直接的下载地址：
+
+**[下载 zombie-cannon-android.apk](https://github.com/tjujingzong/zombie-cannon/releases/download/android-latest/zombie-cannon-android.apk)**
+
+也可以打开 [Android 最新体验版 Release](https://github.com/tjujingzong/zombie-cannon/releases/tag/android-latest)，展开页面底部的 **Assets**，点击 `zombie-cannon-android.apk`。如果只看到 `Source code`，通常表示当前构建尚未成功完成；可进入仓库的 **Actions -> Build Android APK** 查看状态。
+
+体验版由 GitHub Actions 在每次推送 `main` 后自动构建，并覆盖 `android-latest` 标签下的同名 APK。首次安装时，Android 会提示允许浏览器或文件管理器“安装未知应用”。正式签名版使用 `v*` 标签发布，文件名类似 `zombie-cannon-v0.2.0.apk`。
+
+## 本地运行
+
+需要 Node.js 20 或更高版本。
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173
-npm run build      # 类型检查 + 产物输出到 dist/
+npm run dev -- --port 7897
+npm run build
+npm run lint
 ```
 
-## 游戏内容
+开发地址为 `http://localhost:7897`。生产构建输出到 `dist/`。
 
-| 模块 | 说明 |
-| --- | --- |
-| 关卡引擎 | 50 关（`src/data/levels.ts`）：1~10 关手工教学递进；11~50 关由确定性 PRNG 程序化生成，难度持续上升。每 5 关一个 Boss 关（5/10/15/.../50），每 10 关一个大章节，biome 循环 |
-| 敌人 | 18 种僵尸，覆盖远程、治疗、召唤、潜地、分裂、减伤、吸血等行为，并带四种精英词缀与首领二阶段 |
-| 图鉴 | 主菜单「图鉴」入口：僵尸图鉴（行为/弱点/对策/威胁等级）、技能图鉴、组合技、战术指南（`src/scenes/CodexScene.ts`） |
-| 局内升级 | 24 个技能、17 个组合技、四条终极流派，以及战前选技、波间风险契约、三种开局挑战契约、过载与随机战场事件 |
-| 局外养成 | 六项永久强化、背景/装饰/辅助炮台、27 种行为装备组合，以及追猎/磁暴/急救三协议的 R-7 战术伙伴 |
-| 长期模式 | 上海时区每日挑战、种子化末日无尽、每周行动任务、军需奖励与八项终身成就 |
-| 音效系统 | Web Audio API 程序化合成（`src/systems/AudioSystem.ts`）：分层 BGM（普通/Boss/菜单三种主题）+ 18 种 SFX。首次交互自动解锁，菜单/HUD 提供静音按钮 |
-| 视觉特效 | 子弹拖尾、枪口闪光、击杀冲击波、Boss 光环王冠入场、暴击顿帧、低血红屏、10 种 biome 背景配色、氛围灰烬粒子 |
-| 存档 | localStorage v5，保存进度、构筑、军械、行为装备、伙伴协议、挑战契约、每日/无尽/行动档案数据，并支持菜单导入/导出 |
+## 本地构建 Android APK
 
-## 部署到 GitHub Pages
-
-1. 在 GitHub 新建仓库并推送本项目：
-   ```bash
-   git remote add origin https://github.com/<你的用户名>/<仓库名>.git
-   git push -u origin main
-   ```
-2. 仓库 Settings -> Pages -> Build and deployment，Source 选择 **GitHub Actions**。
-3. 之后每次 push 到 `main`，`.github/workflows/deploy.yml` 会自动构建并发布。
-   访问地址：`https://<你的用户名>.github.io/<仓库名>/`
-
-> `vite.config.ts` 已设置 `base: './'`（相对路径），无需按仓库名改 base。
-
-## 打包安卓应用（Capacitor）
-
-### 从 GitHub 下载
-
-每次推送 `main` 时，`Build Android APK` 工作流都会更新 [Android 最新体验版](https://github.com/tjujingzong/zombie-cannon/releases/tag/android-latest)。点击页面 Assets 下的 `zombie-cannon-android.apk` 即可下载；也可以使用 README 顶部的固定直链。这个体验包由 Android 调试证书签名，可直接侧载安装，不会过期。
-
-首次侧载时，Android 会要求允许浏览器或文件管理器“安装未知应用”。配置正式签名后，带 `v*` 的 Git 标签会构建签名正式版，并自动附加到独立的 GitHub Release，文件名类似 `zombie-cannon-v0.1.0.apk`。
-
-### 本地构建测试 APK
-
-仓库已经包含 `android/` 原生工程：
+仓库已经包含 Capacitor Android 工程，并与网页版共用同一份 `dist/`：
 
 ```bash
 npm ci
@@ -64,52 +69,55 @@ cd android
 ./gradlew.bat assembleDebug   # Windows
 ```
 
-APK 输出到 `android/app/build/outputs/apk/debug/app-debug.apk`。也可运行 `npm run android:open`，在 Android Studio
-中连接真机调试。Web 代码有变化时要先重新执行 `npm run android:sync`。
+APK 输出位置：
 
-### 配置 GitHub 正式签名
-
-先在本机创建一次长期保存的发布密钥：
-
-```bash
-keytool -genkeypair -v -keystore zombie-cannon-release.jks -alias zombie-cannon \
-  -keyalg RSA -keysize 2048 -validity 10000
+```text
+android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-在仓库 `Settings -> Secrets and variables -> Actions` 添加：
+`android/app/build.gradle` 对 CI 环境变量提供默认值；没有正式签名 Secret 时构建可安装的 debug APK，有完整签名配置和 `v*` 标签时构建 release APK。
+
+## 正式签名发布
+
+在仓库 `Settings -> Secrets and variables -> Actions` 配置：
 
 | Secret | 内容 |
 | --- | --- |
-| `ANDROID_KEYSTORE_BASE64` | `.jks` 文件的 Base64 文本 |
+| `ANDROID_KEYSTORE_BASE64` | 发布 `.jks` 的 Base64 内容 |
 | `ANDROID_KEYSTORE_PASSWORD` | 密钥库密码 |
-| `ANDROID_KEY_ALIAS` | 例如 `zombie-cannon` |
+| `ANDROID_KEY_ALIAS` | 密钥别名 |
 | `ANDROID_KEY_PASSWORD` | 密钥密码 |
 
-Windows PowerShell 可用下面的命令取得 Base64 文本：
-
-```powershell
-[Convert]::ToBase64String([IO.File]::ReadAllBytes('zombie-cannon-release.jks')) | Set-Clipboard
-```
-
-四项 Secret 配好后，用版本标签触发正式发布：
+然后推送版本标签：
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
-发布密钥一旦用于首个正式版本，后续更新必须继续使用同一份 `.jks`。请把它离线备份，绝不能提交到 Git。
+发布密钥用于首个正式版本后必须长期保留，并且不能提交到 Git。
 
-## 目录结构
+## 项目结构
 
-```
+```text
 src/
-  main.ts              # Phaser 启动与缩放配置（720x1280 FIT）
-  data/                # 数值平衡 balance.ts、关卡引擎 levels.ts、技能 skills.ts
-  systems/             # WaveManager 波次 / SkillSystem 局内升级 / SaveManager 存档
-                       # MetaUpgrades 局外养成 / AudioSystem 程序化音频
-  entities/            # Cannon 炮台 / Bullet 子弹 / Zombie 僵尸 / Coin 金币（对象池）
-  scenes/              # Boot(纹理生成) / Menu / LevelSelect(含商店,50关滚动)
-                       # Codex(图鉴) / Game(战斗) / UI(HUD+静音) / Result(结算)
-  ui/helpers.ts        # 按钮、文本样式等 UI 工具
+  data/       关卡、55 类敌人、技能、军械、装备与长期玩法数据
+  entities/   炮台、子弹、僵尸、金币及对象池实体
+  scenes/     启动、菜单、选关/商店、图鉴、战斗、HUD、结算
+  systems/    波次、技能、存档、局外养成、音频、无尽与事件系统
+public/assets/generated/
+  zombies/    六张正式 Boss 透明 PNG
+  skills/     终极技能正式图标
+android/      Capacitor Android 原生工程
+.github/      Pages 与 Android APK 自动构建工作流
 ```
+
+## 质量检查
+
+```bash
+npm run check        # TypeScript + ESLint + Knip
+npm run android:sync # Web 构建并同步 Android 资源
+npx cap doctor android
+```
+
+核心设计、数值与跨平台决策见 [设计思路](docs/设计思路.md)，版本演进见 [迭代记录](docs/迭代记录.md)。

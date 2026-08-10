@@ -66,7 +66,7 @@ export interface WeeklyCacheReward {
 }
 
 // 存档数据结构
-export interface SaveData {
+interface SaveData {
   version: number;
   coins: number;
   // 已解锁的最大关卡 id（1 表示只有第 1 关可玩）
@@ -104,12 +104,15 @@ function defaultOperations(now = Date.now()): OperationsSave {
 }
 
 function defaultSave(): SaveData {
+  const emptyMeta = Object.fromEntries(
+    (Object.keys(META_UPGRADES) as MetaUpgradeKey[]).map((key) => [key, 0]),
+  ) as Record<MetaUpgradeKey, number>;
   return {
     version: SAVE_VERSION,
     coins: 0,
     unlockedLevel: 1,
     stars: {},
-    meta: { damage: 0, fireRate: 0, wallHp: 0, coinBonus: 0, overdriveStart: 0, salvage: 0 },
+    meta: emptyMeta,
     armory: {
       owned: [],
       equipped: { background: 'default', decor: 'none', support: 'none' },

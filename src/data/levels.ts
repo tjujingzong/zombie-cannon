@@ -1,4 +1,10 @@
-import type { ZombieTypeKey } from './balance';
+import {
+  BOSS_ZOMBIE_TYPES,
+  ZOMBIE_CODEX,
+  ZOMBIE_TYPES,
+  getUnlockedZombieTypes,
+  type ZombieTypeKey,
+} from './balance';
 
 // 一个波次中的一组刷怪配置
 export interface SpawnGroup {
@@ -8,7 +14,7 @@ export interface SpawnGroup {
   delay?: number; // 相对波次开始的延迟（秒）
 }
 
-export interface WaveConfig {
+interface WaveConfig {
   groups: SpawnGroup[];
   /** 是否为 Boss 波（用于触发 Boss 入场动画/音乐） */
   bossWave?: boolean;
@@ -135,7 +141,7 @@ const HANDCRAFTED_LEVELS: LevelConfig[] = [
       { groups: [g('tank', 8, 1.5), g('normal', 18, 0.6, 2), g('summoner', 4, 3.0, 3), g('healer', 4, 2.5, 5), g('shield', 4, 2.0, 7)] },
       { groups: [g('fast', 24, 0.4), g('ghost', 10, 0.7, 2), g('berserker', 8, 1.0, 3), g('exploder', 8, 1.0, 5)] },
       { groups: [g('normal', 30, 0.4), g('tank', 10, 1.2, 2), g('fast', 16, 0.5, 3), g('spitter', 8, 0.8, 4), g('shield', 6, 1.5, 6), g('healer', 4, 2.5, 8)] },
-      { bossWave: true, groups: [g('boss', 2, 6.0), g('summoner', 5, 2.5, 3), g('berserker', 10, 0.8, 5), g('ghost', 10, 0.6, 7), g('normal', 20, 0.5, 9), g('exploder', 8, 1.0, 12)] },
+      { bossWave: true, groups: [g('boss_inferno', 2, 6.0), g('summoner', 5, 2.5, 3), g('berserker', 10, 0.8, 5), g('ghost', 10, 0.6, 7), g('normal', 20, 0.5, 9), g('exploder', 8, 1.0, 12)] },
     ],
   },
 ];
@@ -148,28 +154,11 @@ export const TOTAL_LEVELS = 50;
 // 章节循环：每 10 关一个大循环，biome 重新轮转，难度高于上一轮
 
 // 关卡引擎解锁的僵尸类型池（按等级解锁）
-const ZOMBIE_POOL_BY_TIER: Record<number, ZombieTypeKey[]> = {
-  1:  ['normal', 'fast'],
-  2:  ['normal', 'fast', 'tank'],
-  3:  ['normal', 'fast', 'tank', 'exploder', 'splitter'],
-  4:  ['normal', 'fast', 'tank', 'exploder', 'splitter', 'spitter', 'healer'],
-  5:  ['normal', 'fast', 'tank', 'exploder', 'splitter', 'spitter', 'healer', 'shield', 'leaper'],
-  6:  ['normal', 'fast', 'tank', 'exploder', 'splitter', 'spitter', 'healer', 'shield', 'ghost', 'leaper', 'burrower'],
-  7:  ['normal', 'fast', 'tank', 'exploder', 'splitter', 'spitter', 'healer', 'shield', 'ghost', 'berserker', 'leaper', 'jammer', 'burrower', 'conductor'],
-  8:  ['normal', 'fast', 'tank', 'exploder', 'splitter', 'spitter', 'healer', 'shield', 'ghost', 'berserker', 'summoner', 'leaper', 'jammer', 'burrower', 'conductor', 'siphon'],
-};
-
-function tierFor(levelId: number): number {
-  // 章节 1（1-10）逐步引入；之后所有类型全开
-  if (levelId <= 10) return Math.min(8, Math.ceil(levelId / 1.25));
-  return 8;
-}
-
-function pickN<T>(arr: T[], n: number): T[] {
+function pickN<T>(arr: T[], n: number, random: () => number = Math.random): T[] {
   const pool = [...arr];
   const out: T[] = [];
   while (out.length < n && pool.length > 0) {
-    out.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+    out.push(pool.splice(Math.floor(random() * pool.length), 1)[0]);
   }
   return out;
 }
@@ -209,8 +198,7 @@ function generateLevel(id: number): LevelConfig {
   const baseWaves = between(5, 7);
   const waveCount = bossLevel ? baseWaves + 1 : baseWaves;
 
-  const tier = tierFor(id);
-  const pool = ZOMBIE_POOL_BY_TIER[tier];
+  const pool = getUnlockedZombieTypes(id).filter((type) => type !== 'swarm');
 
   const waves: WaveConfig[] = [];
 
@@ -218,12 +206,27 @@ function generateLevel(id: number): LevelConfig {
     const isLast = w === waveCount - 1;
     const groups: SpawnGroup[] = [];
 
+    // 新变体在首次解锁关的第一波必定登场，避免图鉴内容只存在于随机池中。
+    if (w === 0) {
+      getUnlockedZombieTypes(id)
+        .filter((type) => type !== 'swarm' && ZOMBIE_CODEX[type].firstSeen === id)
+        .forEach((type, index) => {
+          const archetype = ZOMBIE_TYPES[type].archetype;
+          const count = ['tank', 'healer', 'summoner', 'shield', 'jammer', 'conductor', 'siphon']
+            .includes(archetype) ? 2 : 5;
+          groups.push(g(type, count, 0.85, index * 1.1));
+        });
+    }
+
     if (bossLevel && isLast) {
       // Boss 波
       const bossCount = chapter >= 3 ? between(2, 3) : (chapter >= 1 ? between(1, 2) : 1);
-      groups.push(g('boss', bossCount, 6.0));
+      const variantCount = Math.max(1, BOSS_ZOMBIE_TYPES.length - 1);
+      const bossIndex = 1 + ((Math.floor(id / 5) - 2) % variantCount);
+      const bossType = BOSS_ZOMBIE_TYPES[bossIndex] ?? BOSS_ZOMBIE_TYPES[0];
+      groups.push(g(bossType, bossCount, 6.0));
       // Boss 护航
-      const escortTypes = pickN(pool.filter((t) => t !== 'boss'), between(3, 5));
+      const escortTypes = pickN(pool, between(3, 5), rng);
       escortTypes.forEach((t, i) => {
         groups.push(g(t, between(6, 14), between(0.5, 1.0), 2 + i * 2));
       });
@@ -238,14 +241,15 @@ function generateLevel(id: number): LevelConfig {
 
     // 普通波：混合类型，越往后数量越多
     const typeCount = between(2, Math.min(5, 2 + chapter));
-    const chosenTypes = pickN(pool, typeCount);
+    const chosenTypes = pickN(pool, typeCount, rng);
 
     chosenTypes.forEach((t, i) => {
       // 数量随章节和波次增长
       let baseCount: number;
-      if (t === 'tank') baseCount = between(2, 3 + chapter);
-      else if (t === 'healer' || t === 'summoner' || t === 'shield' || t === 'jammer' || t === 'conductor' || t === 'siphon') baseCount = between(1, 2 + Math.floor(chapter / 2));
-      else if (t === 'exploder' || t === 'berserker' || t === 'ghost' || t === 'leaper' || t === 'splitter') baseCount = between(3, 6 + chapter);
+      const archetype = ZOMBIE_TYPES[t].archetype;
+      if (archetype === 'tank') baseCount = between(2, 3 + chapter);
+      else if (archetype === 'healer' || archetype === 'summoner' || archetype === 'shield' || archetype === 'jammer' || archetype === 'conductor' || archetype === 'siphon') baseCount = between(1, 2 + Math.floor(chapter / 2));
+      else if (archetype === 'exploder' || archetype === 'berserker' || archetype === 'ghost' || archetype === 'leaper' || archetype === 'splitter') baseCount = between(3, 6 + chapter);
       else baseCount = between(8, 14 + chapter * 2);
 
       // 间隔随章节缩短（更密集）

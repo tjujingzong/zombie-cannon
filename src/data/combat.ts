@@ -30,6 +30,7 @@ export const ELITE_AFFIXES: Record<EliteAffix, EliteAffixDef> = {
 export type DamageSourceKey =
   | 'bullet'
   | 'burn'
+  | 'toxic'
   | 'explosion'
   | 'missile'
   | 'airSupport'
@@ -45,6 +46,7 @@ export type DamageSourceKey =
 export const DAMAGE_SOURCE_LABELS: Record<DamageSourceKey, string> = {
   bullet: '主炮弹幕',
   burn: '灼烧',
+  toxic: '腐蚀载荷',
   explosion: '范围爆破',
   missile: '追踪导弹',
   airSupport: '空中支援',

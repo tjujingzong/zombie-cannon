@@ -1,12 +1,8 @@
+import type { DamageElement } from './zombies';
+
 // ─── 稀有度 ────────────────────────────────────────
 export type Rarity = 'common' | 'rare' | 'epic' | 'legendary';
 
-export const RARITY_COLOR: Record<Rarity, number> = {
-  common: 0xb0bec5,
-  rare: 0x42a5f5,
-  epic: 0xab47bc,
-  legendary: 0xffa726,
-};
 export const RARITY_LABEL: Record<Rarity, string> = {
   common: '普通',
   rare: '稀有',
@@ -31,6 +27,8 @@ export interface SkillDef {
   maxLevel: number;
   /** 每级数值增量（由 SkillSystem 解释） */
   perLevel: number;
+  /** 对应元素通道，用于图鉴与克制提示 */
+  element?: DamageElement;
 }
 
 export const SKILLS: SkillDef[] = [
@@ -89,7 +87,63 @@ export const SKILLS: SkillDef[] = [
   },
   {
     key: 'gravityWell', name: '引力奇点', desc: '周期生成引力场，聚拢并持续伤害敌群',
-    icon: 'icon_gravity', rarity: 'legendary', category: 'offense', maxLevel: 3, perLevel: 1,
+    icon: 'icon_gravity', rarity: 'legendary', category: 'offense', maxLevel: 3, perLevel: 1, element: 'gravity',
+  },
+  {
+    key: 'kineticCalibration', name: '动能校准', desc: '动能伤害 +18%，克制普通与轻甲目标',
+    icon: 'icon_pierce', rarity: 'common', category: 'offense', maxLevel: 4, perLevel: 0.18, element: 'kinetic',
+  },
+  {
+    key: 'incendiaryCore', name: '燃烧核心', desc: '火焰伤害 +22%，提升灼烧与冰火震爆',
+    icon: 'icon_burn', rarity: 'rare', category: 'offense', maxLevel: 4, perLevel: 0.22, element: 'fire',
+  },
+  {
+    key: 'cryoAmplifier', name: '极寒增幅器', desc: '寒冰伤害 +22%，减速强度与持续时间提高',
+    icon: 'icon_frost', rarity: 'rare', category: 'offense', maxLevel: 4, perLevel: 0.22, element: 'frost',
+  },
+  {
+    key: 'stormCoil', name: '风暴线圈', desc: '主炮命中有概率释放小型连锁闪电',
+    icon: 'icon_chain', rarity: 'epic', category: 'offense', maxLevel: 3, perLevel: 0.08, element: 'lightning',
+  },
+  {
+    key: 'toxicPayload', name: '腐蚀载荷', desc: '主炮附加腐蚀持续伤害，专破重甲与导体',
+    icon: 'icon_toxic', rarity: 'rare', category: 'offense', maxLevel: 4, perLevel: 1.8, element: 'toxic',
+  },
+  {
+    key: 'plasmaLance', name: '等离子枪膛', desc: '能量伤害 +24%，强化激光与空中支援',
+    icon: 'icon_laser', rarity: 'epic', category: 'offense', maxLevel: 4, perLevel: 0.24, element: 'energy',
+  },
+  {
+    key: 'demolitionExpert', name: '爆破专家', desc: '爆破伤害 +20%，扩大爆炸与地雷威力',
+    icon: 'icon_explosion', rarity: 'rare', category: 'offense', maxLevel: 4, perLevel: 0.20, element: 'explosive',
+  },
+  {
+    key: 'gravityLens', name: '曲率透镜', desc: '引力伤害 +25%，奇点牵引范围同步扩大',
+    icon: 'icon_gravity', rarity: 'epic', category: 'offense', maxLevel: 3, perLevel: 0.25, element: 'gravity',
+  },
+  {
+    key: 'elementalMastery', name: '元素洞察', desc: '命中敌人弱点时额外提高克制倍率',
+    icon: 'icon_lucky', rarity: 'epic', category: 'offense', maxLevel: 4, perLevel: 0.08,
+  },
+  {
+    key: 'shatterRounds', name: '碎冰弹', desc: '对减速目标造成额外伤害',
+    icon: 'icon_cryo_mine', rarity: 'rare', category: 'offense', maxLevel: 3, perLevel: 0.16, element: 'frost',
+  },
+  {
+    key: 'heatExecution', name: '热能处决', desc: '对灼烧或腐蚀目标造成额外伤害',
+    icon: 'icon_execute', rarity: 'epic', category: 'offense', maxLevel: 3, perLevel: 0.18, element: 'fire',
+  },
+  {
+    key: 'clusterWarhead', name: '集束战斗部', desc: '范围爆炸扩大，并提高边缘伤害',
+    icon: 'icon_doom', rarity: 'epic', category: 'offense', maxLevel: 3, perLevel: 0.14, element: 'explosive',
+  },
+  {
+    key: 'bossHunter', name: '首领猎杀令', desc: '对首领和精英造成额外伤害',
+    icon: 'icon_fatal', rarity: 'rare', category: 'offense', maxLevel: 4, perLevel: 0.12,
+  },
+  {
+    key: 'crowdBreaker', name: '尸潮粉碎机', desc: '场上敌人越多，范围伤害越高',
+    icon: 'icon_storm', rarity: 'epic', category: 'offense', maxLevel: 3, perLevel: 0.06,
   },
 
   // ── 防御类 ──
@@ -117,6 +171,30 @@ export const SKILLS: SkillDef[] = [
     key: 'fieldMedic', name: '战地修复', desc: '累计击杀后自动修复城墙',
     icon: 'icon_field_medic', rarity: 'rare', category: 'defense', maxLevel: 3, perLevel: 0.02,
   },
+  {
+    key: 'reinforcedFoundation', name: '加固地基', desc: '墙体上限与当前耐久 +12%',
+    icon: 'icon_steel', rarity: 'common', category: 'defense', maxLevel: 4, perLevel: 0.12,
+  },
+  {
+    key: 'reactiveArmor', name: '反应装甲', desc: '墙体受击伤害额外降低 7%',
+    icon: 'icon_shield', rarity: 'rare', category: 'defense', maxLevel: 4, perLevel: 0.07,
+  },
+  {
+    key: 'emergencyBarrier', name: '应急屏障', desc: '墙体低于 30% 时周期获得临时护盾',
+    icon: 'icon_fortress', rarity: 'epic', category: 'defense', maxLevel: 3, perLevel: 18,
+  },
+  {
+    key: 'nanoRepair', name: '纳米修复群', desc: '波次间自动修复部分墙体',
+    icon: 'icon_repair', rarity: 'rare', category: 'defense', maxLevel: 4, perLevel: 0.025,
+  },
+  {
+    key: 'repulsionField', name: '斥力防线', desc: '墙体受击时提高击退脉冲范围',
+    icon: 'icon_gravity', rarity: 'epic', category: 'defense', maxLevel: 3, perLevel: 28, element: 'gravity',
+  },
+  {
+    key: 'lastStand', name: '背水一战', desc: '墙体低血量时炮台伤害大幅提高',
+    icon: 'icon_fatal', rarity: 'legendary', category: 'defense', maxLevel: 2, perLevel: 0.28,
+  },
 
   // ── 辅助类 ──
   {
@@ -130,6 +208,22 @@ export const SKILLS: SkillDef[] = [
   {
     key: 'luckyStar', name: '幸运星', desc: '技能刷新出现高稀有度概率 +15%',
     icon: 'icon_lucky', rarity: 'rare', category: 'utility', maxLevel: 3, perLevel: 0.15,
+  },
+  {
+    key: 'salvageScanner', name: '战场扫描仪', desc: '精英与首领奖励金币提高 24%',
+    icon: 'icon_gold', rarity: 'rare', category: 'utility', maxLevel: 3, perLevel: 0.24,
+  },
+  {
+    key: 'overdriveReservoir', name: '过载储液罐', desc: '击杀获得的过载能量提高 18%',
+    icon: 'icon_barrage', rarity: 'rare', category: 'utility', maxLevel: 3, perLevel: 0.18,
+  },
+  {
+    key: 'tacticalReserve', name: '战术储备', desc: '刷新技能的金币消耗降低 15%',
+    icon: 'icon_air_support', rarity: 'common', category: 'utility', maxLevel: 3, perLevel: 0.15,
+  },
+  {
+    key: 'rareRequisition', name: '稀有征调令', desc: '进一步提高史诗与传说技能出现率',
+    icon: 'icon_lucky', rarity: 'epic', category: 'utility', maxLevel: 3, perLevel: 0.12,
   },
 ];
 
@@ -270,6 +364,62 @@ export const SYNERGIES: SynergyDef[] = [
     desc: '自动修复城墙时同步补充能量护盾',
     icon: 'icon_field_hospital',
     requires: [{ skill: 'fieldMedic', minLevel: 1 }, { skill: 'energyShield', minLevel: 1 }],
+  },
+  {
+    key: 'firestormCircuit',
+    name: '炽雷回路',
+    desc: '火焰命中会提高风暴线圈触发率，电弧同时点燃目标',
+    icon: 'icon_chain',
+    requires: [{ skill: 'incendiaryCore', minLevel: 2 }, { skill: 'stormCoil', minLevel: 2 }],
+  },
+  {
+    key: 'toxicCombustion',
+    name: '腐蚀爆燃',
+    desc: '同时处于灼烧和腐蚀的目标受到额外持续伤害',
+    icon: 'icon_deton',
+    requires: [{ skill: 'toxicPayload', minLevel: 2 }, { skill: 'burnBullets', minLevel: 2 }],
+  },
+  {
+    key: 'shatterstorm',
+    name: '极寒碎裂',
+    desc: '对减速目标的碎冰增伤翻倍，并扩散一圈寒冰冲击',
+    icon: 'icon_cryo_mine',
+    requires: [{ skill: 'cryoAmplifier', minLevel: 2 }, { skill: 'shatterRounds', minLevel: 2 }],
+  },
+  {
+    key: 'antimatterLens',
+    name: '反物质透镜',
+    desc: '引力场中的目标受到更多能量伤害',
+    icon: 'icon_singularity_bomb',
+    requires: [{ skill: 'plasmaLance', minLevel: 2 }, { skill: 'gravityLens', minLevel: 2 }],
+  },
+  {
+    key: 'siegeDoctrine',
+    name: '集束攻城学',
+    desc: '爆炸范围与边缘伤害进一步提高，地雷追加二次冲击',
+    icon: 'icon_doom',
+    requires: [{ skill: 'demolitionExpert', minLevel: 2 }, { skill: 'clusterWarhead', minLevel: 2 }],
+  },
+  {
+    key: 'adaptiveHunter',
+    name: '自适应猎杀',
+    desc: '对首领或精英触发元素克制时再追加一次增伤',
+    icon: 'icon_fatal',
+    requires: [{ skill: 'elementalMastery', minLevel: 2 }, { skill: 'bossHunter', minLevel: 2 }],
+  },
+  {
+    key: 'resilientCore',
+    name: '自愈装甲核',
+    desc: '受击减伤与波间修复效果同步提高',
+    icon: 'icon_field_hospital',
+    requires: [{ skill: 'reactiveArmor', minLevel: 2 }, { skill: 'nanoRepair', minLevel: 2 }],
+  },
+  {
+    key: 'requisitionNetwork',
+    name: '军需征调网',
+    desc: '精英悬赏提高，刷新技能时更容易获得高稀有度',
+    icon: 'icon_goldHunter',
+    requires: [{ skill: 'salvageScanner', minLevel: 2 }, { skill: 'rareRequisition', minLevel: 2 }],
   },
   {
     key: 'elementalCataclysm',

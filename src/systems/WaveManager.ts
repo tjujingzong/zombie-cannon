@@ -4,6 +4,9 @@ import {
   HORDE_COUNT_PER_LEVEL,
   HORDE_MAX_COUNT,
   HORDE_SPAWN_INTERVAL,
+  BOSS_ZOMBIE_TYPES,
+  ZOMBIE_TYPES,
+  getUnlockedZombieTypes,
   type ZombieTypeKey,
 } from '../data/balance';
 import { randomBetween, type RandomSource } from './SeededRandom';
@@ -143,28 +146,33 @@ export class WaveManager {
   }
 
   private generateEndlessWave(wave: number): { groups: SpawnGroup[]; bossWave?: boolean } {
-    const pool = [
-      'normal', 'fast', 'tank', 'exploder', 'splitter', 'spitter', 'healer', 'shield',
-      'ghost', 'berserker', 'leaper', 'jammer', 'burrower', 'conductor', 'summoner', 'siphon',
-    ] as ZombieTypeKey[];
-    const unlocked = pool.slice(0, Math.min(pool.length, 2 + Math.floor((wave - 1) / 2)));
+    const equivalentLevel = Math.min(50, Math.max(1, 4 + wave * 2));
+    const unlocked = getUnlockedZombieTypes(equivalentLevel).filter((type) => type !== 'swarm');
     const candidates = [...unlocked];
     const groupCount = Math.min(5, 2 + Math.floor((wave - 1) / 3));
     const groups: SpawnGroup[] = [];
     for (let index = 0; index < groupCount && candidates.length > 0; index++) {
       const typeIndex = randomBetween(this.random, 0, candidates.length - 1);
       const type = candidates.splice(typeIndex, 1)[0];
+      const archetype = ZOMBIE_TYPES[type].archetype;
+      const support = ['healer', 'summoner', 'shield', 'jammer', 'conductor', 'siphon'].includes(archetype);
+      const heavy = archetype === 'tank';
       groups.push({
         type,
-        count: Math.max(3, 6 + Math.floor(wave * 0.7) - index),
+        count: support
+          ? Math.max(1, 1 + Math.floor(wave / 12))
+          : heavy
+            ? Math.max(2, 2 + Math.floor(wave / 10))
+            : Math.max(3, 6 + Math.floor(wave * 0.7) - index),
         interval: Math.max(0.28, 1.18 - wave * 0.025 + index * 0.11),
         delay: index * 1.1,
       });
     }
     const bossWave = wave % 10 === 0;
     if (bossWave) {
+      const bossIndex = Math.floor(wave / 10) % BOSS_ZOMBIE_TYPES.length;
       groups.unshift({
-        type: 'boss',
+        type: BOSS_ZOMBIE_TYPES[bossIndex],
         count: Math.min(3, 1 + Math.floor((wave - 10) / 30)),
         interval: 5,
         delay: 0.4,

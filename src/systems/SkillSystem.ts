@@ -4,6 +4,7 @@ import {
   rarityWeight, type Rarity, type SynergyDef, type SkillDef,
 } from '../data/skills';
 import { BUILD_PATHS, type BuildPathKey } from '../data/combat';
+import type { DamageElement } from '../data/zombies';
 import type { RandomSource } from './SeededRandom';
 
 /** 刷新结果项 */
@@ -35,6 +36,7 @@ export class SkillSystem {
   private activeSynergies: Set<string> = new Set();
   private overdriveActive = false;
   private enemyFireRateMultiplier = 1;
+  private wallRatio = 1;
 
   /** 连杀计数 */
   killStreak = 0;
@@ -47,6 +49,8 @@ export class SkillSystem {
 
   /** 修墙回调 */
   onRepair: (ratio: number) => void = () => {};
+  /** 增加墙体上限并同比补充当前耐久 */
+  onWallCapacity: (ratio: number) => void = () => {};
   /** 组合技激活回调 */
   onSynergyActivated: (synergy: SynergyDef) => void = () => {};
   /** 连杀回调 */
@@ -59,7 +63,10 @@ export class SkillSystem {
   get damage(): number {
     const base = MetaUpgrades.baseDamage();
     const bonus = this.getLevel('firePower') * getSkill('firePower').perLevel;
-    return base * (1 + bonus) * (this.overdriveActive ? 1.65 : 1);
+    const lastStand = this.wallRatio <= 0.3
+      ? this.getLevel('lastStand') * getSkill('lastStand').perLevel
+      : 0;
+    return base * (1 + bonus + lastStand) * (this.overdriveActive ? 1.65 : 1);
   }
 
   get fireRate(): number {
@@ -78,11 +85,12 @@ export class SkillSystem {
   }
 
   get pierce(): number {
-    return this.getLevel('armorPiercing') + (this.overdriveActive ? 2 : 0);
+    return MetaUpgrades.basePierce() + this.getLevel('armorPiercing') + (this.overdriveActive ? 2 : 0);
   }
 
   get critChance(): number {
-    return this.getLevel('criticalAim') * getSkill('criticalAim').perLevel;
+    return Math.min(0.85, MetaUpgrades.baseCritChance()
+      + this.getLevel('criticalAim') * getSkill('criticalAim').perLevel);
   }
 
   get burnDps(): number {
@@ -113,7 +121,8 @@ export class SkillSystem {
   }
 
   get explosiveRadius(): number {
-    return 80 + this.getLevel('explosiveRound') * 20;
+    const cluster = this.getLevel('clusterWarhead') * getSkill('clusterWarhead').perLevel;
+    return (80 + this.getLevel('explosiveRound') * 20) * (1 + cluster);
   }
 
   get hasLaser(): boolean {
@@ -126,7 +135,9 @@ export class SkillSystem {
 
   get wallDamageReduction(): number {
     const base = this.getLevel('steelWall') * getSkill('steelWall').perLevel;
-    return Math.min(0.82, base + (this.hasSynergy('eternalFortress') ? 0.07 : 0));
+    const reactive = this.getLevel('reactiveArmor') * getSkill('reactiveArmor').perLevel;
+    const synergy = this.hasSynergy('resilientCore') ? 0.08 : 0;
+    return Math.min(0.86, base + reactive + synergy + (this.hasSynergy('eternalFortress') ? 0.07 : 0));
   }
 
   get thornsDamage(): number {
@@ -161,7 +172,9 @@ export class SkillSystem {
 
   get frostSlowMultiplier(): number {
     const level = this.getLevel('frostRounds');
-    return level > 0 ? Math.max(0.55, 1 - level * getSkill('frostRounds').perLevel) : 1;
+    if (level === 0) return 1;
+    const amplifier = this.getLevel('cryoAmplifier') * 0.025;
+    return Math.max(0.42, 1 - level * getSkill('frostRounds').perLevel - amplifier);
   }
 
   get executionThreshold(): number {
@@ -196,7 +209,7 @@ export class SkillSystem {
   }
 
   get gravityWellRadius(): number {
-    return 145 + this.getLevel('gravityWell') * 20;
+    return 145 + this.getLevel('gravityWell') * 20 + this.getLevel('gravityLens') * 16;
   }
 
   get gravityWellDamage(): number {
@@ -229,6 +242,87 @@ export class SkillSystem {
     return level > 0 ? 0.025 + level * getSkill('fieldMedic').perLevel : 0;
   }
 
+  get toxicDps(): number {
+    const level = this.getLevel('toxicPayload');
+    return level > 0 ? level * getSkill('toxicPayload').perLevel : 0;
+  }
+
+  get stormCoilChance(): number {
+    const base = this.getLevel('stormCoil') * getSkill('stormCoil').perLevel;
+    return Math.min(0.55, base + (this.hasSynergy('firestormCircuit') ? 0.12 : 0));
+  }
+
+  get weaknessBonus(): number {
+    return MetaUpgrades.elementalWeaknessBonus()
+      + this.getLevel('elementalMastery') * getSkill('elementalMastery').perLevel;
+  }
+
+  get eliteBossDamageMultiplier(): number {
+    const base = 1 + this.getLevel('bossHunter') * getSkill('bossHunter').perLevel;
+    return this.hasSynergy('adaptiveHunter') ? base + 0.22 : base;
+  }
+
+  get overdriveGainMultiplier(): number {
+    return MetaUpgrades.overdriveGainMultiplier()
+      * (1 + this.getLevel('overdriveReservoir') * getSkill('overdriveReservoir').perLevel);
+  }
+
+  get eliteBountyMultiplier(): number {
+    return MetaUpgrades.eliteBountyMultiplier()
+      * (1 + this.getLevel('salvageScanner') * getSkill('salvageScanner').perLevel)
+      * (this.hasSynergy('requisitionNetwork') ? 1.2 : 1);
+  }
+
+  get nanoRepairRatio(): number {
+    const value = this.getLevel('nanoRepair') * getSkill('nanoRepair').perLevel;
+    return value * (this.hasSynergy('resilientCore') ? 1.5 : 1);
+  }
+
+  get emergencyBarrierAmount(): number {
+    return this.getLevel('emergencyBarrier') * getSkill('emergencyBarrier').perLevel;
+  }
+
+  get repulsionBonus(): number {
+    return this.getLevel('repulsionField') * getSkill('repulsionField').perLevel;
+  }
+
+  get shatterDamageMultiplier(): number {
+    const value = this.getLevel('shatterRounds') * getSkill('shatterRounds').perLevel;
+    return 1 + value * (this.hasSynergy('shatterstorm') ? 2 : 1);
+  }
+
+  get heatExecutionMultiplier(): number {
+    return 1 + this.getLevel('heatExecution') * getSkill('heatExecution').perLevel;
+  }
+
+  get crowdDamagePerTen(): number {
+    return this.getLevel('crowdBreaker') * getSkill('crowdBreaker').perLevel;
+  }
+
+  get clusterEdgeFloor(): number {
+    const level = this.getLevel('clusterWarhead');
+    return Math.min(0.7, 0.32 + level * 0.1 + (this.hasSynergy('siegeDoctrine') ? 0.12 : 0));
+  }
+
+  getElementDamageMultiplier(element: DamageElement): number {
+    const keyByElement: Partial<Record<DamageElement, string>> = {
+      kinetic: 'kineticCalibration',
+      fire: 'incendiaryCore',
+      frost: 'cryoAmplifier',
+      energy: 'plasmaLance',
+      explosive: 'demolitionExpert',
+      gravity: 'gravityLens',
+    };
+    const skillKey = keyByElement[element];
+    if (!skillKey) return 1;
+    const level = this.getLevel(skillKey);
+    return level > 0 ? 1 + level * getSkill(skillKey).perLevel : 1;
+  }
+
+  setWallRatio(ratio: number): void {
+    this.wallRatio = Math.min(1, Math.max(0, ratio));
+  }
+
   get isOverdriveActive(): boolean {
     return this.overdriveActive;
   }
@@ -242,7 +336,10 @@ export class SkillSystem {
   }
 
   get luckBonus(): number {
-    return this.getLevel('luckyStar') * getSkill('luckyStar').perLevel;
+    const requisition = this.getLevel('rareRequisition') * getSkill('rareRequisition').perLevel;
+    return this.getLevel('luckyStar') * getSkill('luckyStar').perLevel
+      + requisition
+      + (this.hasSynergy('requisitionNetwork') ? 0.12 : 0);
   }
 
   /** 连杀伤害加成 */
@@ -378,7 +475,9 @@ export class SkillSystem {
 
   /** reroll 花费金币数 */
   getRerollCost(): number {
-    return 30 + this.rerollsUsed * 20;
+    const base = 30 + this.rerollsUsed * 20;
+    const discount = this.getLevel('tacticalReserve') * getSkill('tacticalReserve').perLevel;
+    return Math.max(10, Math.round(base * Math.max(0.5, 1 - discount)));
   }
 
   canReroll(coins: number): boolean {
@@ -431,6 +530,9 @@ export class SkillSystem {
 
     if (key === 'emergencyRepair') {
       this.onRepair(skill.perLevel);
+    }
+    if (key === 'reinforcedFoundation') {
+      this.onWallCapacity(skill.perLevel);
     }
 
     // 检查组合技

@@ -1,6 +1,4 @@
 {
   "$schema": "https://knip.dev/schema.json",
-  "entry": ["src/main.ts"],
-  "project": ["src/**/*.ts"],
-  "ignoreDependencies": ["@capacitor/android", "@capacitor/core", "@capacitor/cli", "phaser"]
+  "project": ["src/**/*.ts"]
 }

@@ -17,23 +17,18 @@ import {
   LEAPER_INTERVAL,
   BURROW_DURATION,
   SIPHON_HEAL_RATIO,
-  RANGED_ZOMBIE_TYPES,
+  RANGED_ZOMBIE_BEHAVIORS,
+  type DamageElement,
+  type ZombieBehaviorKey,
 } from '../data/balance';
 import { ELITE_AFFIXES, type EliteAffix } from '../data/combat';
 
-const BOSS_ART_TEXTURE = 'art_zombie_boss_v1';
-const ELITE_ART_TEXTURES: Record<EliteAffix, string> = {
-  swift: 'art_elite_swift_v1',
-  armored: 'art_elite_armored_v1',
-  regenerating: 'art_elite_regenerating_v1',
-  splitting: 'art_elite_splitting_v1',
-};
-
 /**
- * 僵尸（对象池成员）：支持 11 种类型，每种有独特行为
+ * 僵尸对象池成员：类型负责元素防御，行为原型负责移动与特殊能力。
  */
 export class Zombie extends Phaser.Physics.Arcade.Sprite {
   zType: ZombieTypeKey = 'normal';
+  archetype: ZombieBehaviorKey = 'normal';
   hp = 1;
   maxHp = 1;
   shield = 0; // 护盾僵尸的能量盾
@@ -42,6 +37,7 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
   baseSpeed = 0;
   eliteAffix: EliteAffix | null = null;
   lastDamageTaken = 0;
+  lastDamageMultiplier = 1;
   bossPhase = 1;
 
   // 各类行为计时器
@@ -107,6 +103,7 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
   ): void {
     const stats = ZOMBIE_TYPES[type];
     this.zType = type;
+    this.archetype = stats.archetype;
     this.eliteAffix = eliteAffix;
     const hpMultiplier = eliteAffix === 'armored' ? 2.35
       : eliteAffix === 'regenerating' ? 1.65
@@ -120,30 +117,29 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     this.wallDamage = stats.damage;
     this.coinValue = Math.round(stats.coin * (eliteAffix === 'armored' || eliteAffix === 'regenerating' ? 3 : eliteAffix ? 2 : 1));
     this.baseSpeed = stats.speed * speedScale * speedMultiplier;
-    this.shield = type === 'shield' ? SHIELD_MAX : 0;
+    this.shield = this.archetype === 'shield' ? SHIELD_MAX : 0;
     this.attackTimer = 0;
     this.summonTimer = 0;
     this.spitTimer = 0;
     this.healTimer = 0;
-    this.ghostTimer = type === 'ghost' ? GHOST_VISIBLE_TIME : 0;
-    this.isGhostVisible = type !== 'ghost';
+    this.ghostTimer = this.archetype === 'ghost' ? GHOST_VISIBLE_TIME : 0;
+    this.isGhostVisible = this.archetype !== 'ghost';
     this.slowMultiplier = 1;
     this.slowTimer = 0;
     this.leapTimer = 0;
     this.leapBurstTimer = 0;
-    this.burrowTimer = type === 'burrower' ? BURROW_DURATION : 0;
-    this.isBurrowed = type === 'burrower';
+    this.burrowTimer = this.archetype === 'burrower' ? BURROW_DURATION : 0;
+    this.isBurrowed = this.archetype === 'burrower';
     this.damageReduction = 0;
     this.eliteDamageReduction = eliteAffix === 'armored' ? 0.34 : 0;
     this.regenerationCooldown = 0;
     this.knockbackTimer = 0;
     this.lastDamageTaken = 0;
+    this.lastDamageMultiplier = 1;
     this.bossPhase = 1;
 
     this.enableBody(true, x, y, true, true);
-    const generatedTexture = type === 'boss'
-      ? BOSS_ART_TEXTURE
-      : eliteAffix ? ELITE_ART_TEXTURES[eliteAffix] : null;
+    const generatedTexture = this.archetype === 'boss' ? stats.artTexture : null;
     const visualTexture = generatedTexture && this.scene.textures.exists(generatedTexture)
       ? generatedTexture
       : stats.texture;
@@ -163,7 +159,7 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     if (!this.hpBar) this.hpBar = this.scene.add.graphics();
     if (!this.shieldBar) this.shieldBar = this.scene.add.graphics();
     this.hpBar.setVisible(true).setDepth(6);
-    this.shieldBar.setVisible(type === 'shield').setDepth(6);
+    this.shieldBar.setVisible(this.archetype === 'shield').setDepth(6);
 
     if (eliteAffix) {
       const affix = ELITE_AFFIXES[eliteAffix];
@@ -191,7 +187,7 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     }
 
     // Boss 光环 + 王冠
-    if (type === 'boss') {
+    if (this.isBoss) {
       if (!this.bossAura) {
         this.bossAura = this.scene.add.image(this.x, this.y + 30, 'boss_aura').setDepth(4);
       }
@@ -240,9 +236,20 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
   }
 
   /** 返回 true 表示死亡 */
-  takeDamage(dmg: number): boolean {
+  takeDamage(dmg: number, element: DamageElement = 'kinetic', weaknessBonus = 0): boolean {
     this.lastDamageTaken = 0;
+    this.lastDamageMultiplier = 1;
     if (this.hp <= 0 || !this.isGhostVisible || this.isBurrowed || this.dying) return false;
+    const baseElementMultiplier = this.getElementMultiplier(element);
+    const elementMultiplier = baseElementMultiplier > 1
+      ? baseElementMultiplier + Math.max(0, weaknessBonus)
+      : baseElementMultiplier;
+    this.lastDamageMultiplier = elementMultiplier;
+    if (elementMultiplier <= 0) {
+      this.flashHit();
+      return false;
+    }
+    dmg *= elementMultiplier;
     dmg *= 1 - Phaser.Math.Clamp(this.damageReduction + this.eliteDamageReduction, 0, 0.78);
     this.lastDamageTaken = Math.min(this.hp + this.shield, Math.max(0, dmg));
     if (this.eliteAffix === 'regenerating') this.regenerationCooldown = 3;
@@ -261,7 +268,7 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     }
 
     this.hp -= dmg;
-    if (this.zType === 'boss' && this.bossPhase === 1 && this.hp > 0 && this.hp / this.maxHp <= 0.5) {
+    if (this.isBoss && this.bossPhase === 1 && this.hp > 0 && this.hp / this.maxHp <= 0.5) {
       this.bossPhase = 2;
       this.baseSpeed *= 1.62;
       const body = this.body as Phaser.Physics.Arcade.Body;
@@ -275,7 +282,11 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
 
   applySlow(multiplier: number, duration: number): void {
     if (!this.active || this.hp <= 0) return;
-    const next = Phaser.Math.Clamp(multiplier, 0.35, 1);
+    const frostResponse = this.getElementMultiplier('frost');
+    if (frostResponse <= 0) return;
+    const adjustedStrength = (1 - multiplier) * Math.min(1.35, frostResponse);
+    const next = Phaser.Math.Clamp(1 - adjustedStrength, 0.3, 1);
+    duration *= Phaser.Math.Clamp(frostResponse, 0.45, 1.35);
     const previous = this.slowMultiplier;
     this.slowMultiplier = Math.min(this.slowMultiplier, next);
     this.slowTimer = Math.max(this.slowTimer, duration);
@@ -300,6 +311,26 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
 
   get burrowed(): boolean {
     return this.isBurrowed;
+  }
+
+  get slowed(): boolean {
+    return this.slowTimer > 0 && this.slowMultiplier < 1;
+  }
+
+  get isBoss(): boolean {
+    return this.archetype === 'boss';
+  }
+
+  isBehavior(key: ZombieBehaviorKey): boolean {
+    return this.archetype === key;
+  }
+
+  getElementMultiplier(element: DamageElement): number {
+    return ZOMBIE_TYPES[this.zType].damageMultipliers[element] ?? 1;
+  }
+
+  isImmuneTo(element: DamageElement): boolean {
+    return this.getElementMultiplier(element) === 0;
   }
 
   forceSurface(): void {
@@ -345,6 +376,7 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     this.regenerationCooldown = 0;
     this.knockbackTimer = 0;
     this.lastDamageTaken = 0;
+    this.lastDamageMultiplier = 1;
     this.bossPhase = 1;
     this.usesGeneratedArt = false;
     this.visualScale = 1;
@@ -401,8 +433,8 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     const body = this.body as Phaser.Physics.Arcade.Body;
     const bottom = this.y + this.displayHeight / 2;
 
-    if (!this.isBurrowed && this.zType !== 'leaper' && bottom < WALL_Y) {
-      const sway = this.zType === 'boss' ? 0.025 : 0.045;
+    if (!this.isBurrowed && this.archetype !== 'leaper' && bottom < WALL_Y) {
+      const sway = this.isBoss ? 0.025 : 0.045;
       this.setRotation(Math.sin(time * 0.006 + this.x * 0.025) * sway);
     }
 
@@ -433,14 +465,14 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
       if (this.slowTimer <= 0) {
         this.slowMultiplier = 1;
         this.restoreVisualTint();
-        if (bottom < WALL_Y && body.velocity.y > 0 && !RANGED_ZOMBIE_TYPES.has(this.zType)) {
+        if (bottom < WALL_Y && body.velocity.y > 0 && !RANGED_ZOMBIE_BEHAVIORS.has(this.archetype)) {
           this.setVelocity(0, this.baseSpeed);
         }
       }
     }
 
     // ── 幽灵隐身 ──
-    if (this.zType === 'ghost' && this.hp > 0) {
+    if (this.archetype === 'ghost' && this.hp > 0) {
       this.ghostTimer -= dt;
       if (this.isGhostVisible && this.ghostTimer <= 0) {
         this.isGhostVisible = false;
@@ -454,14 +486,14 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     }
 
     // ── 狂暴者加速 ──
-    if (this.zType === 'berserker' && this.hp > 0 && bottom < WALL_Y) {
+    if (this.archetype === 'berserker' && this.hp > 0 && bottom < WALL_Y) {
       const hpRatio = this.hp / this.maxHp;
       const speedMult = 1 + (1 - hpRatio) * 1.8; // 血量越低越快，最高2.8倍
       this.setVelocity(0, this.baseSpeed * speedMult * this.slowMultiplier);
     }
 
     // ── 跃袭者周期冲刺 ──
-    if (this.zType === 'leaper' && this.hp > 0 && bottom < WALL_Y) {
+    if (this.archetype === 'leaper' && this.hp > 0 && bottom < WALL_Y) {
       if (this.leapBurstTimer > 0) {
         this.leapBurstTimer -= dt;
         this.setVelocity(0, this.baseSpeed * 3.2 * this.slowMultiplier);
@@ -478,7 +510,7 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     }
 
     // ── 远程攻击（喷射者） ──
-    if (RANGED_ZOMBIE_TYPES.has(this.zType) && this.hp > 0) {
+    if (RANGED_ZOMBIE_BEHAVIORS.has(this.archetype) && this.hp > 0) {
       const wallDist = WALL_Y - bottom;
       if (wallDist > 0 && wallDist < SPITTER_RANGE) {
         // 在射程内，停下并射击
@@ -497,7 +529,7 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     }
 
     // ── 触墙攻击（非远程类型） ──
-    if (!this.isBurrowed && !RANGED_ZOMBIE_TYPES.has(this.zType) && bottom >= WALL_Y) {
+    if (!this.isBurrowed && !RANGED_ZOMBIE_BEHAVIORS.has(this.archetype) && bottom >= WALL_Y) {
       if (body.velocity.y !== 0) {
         this.setVelocity(0, 0);
         this.setRotation(0);
@@ -507,7 +539,7 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
       if (this.attackTimer >= ZOMBIE_ATTACK_INTERVAL) {
         this.attackTimer = 0;
         this.onAttackWall(this.wallDamage);
-        if (this.zType === 'siphon') {
+        if (this.archetype === 'siphon') {
           this.hp = Math.min(this.maxHp, this.hp + this.maxHp * SIPHON_HEAL_RATIO);
           this.drawHpBar();
           this.onHeal?.(this);
@@ -517,7 +549,7 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     }
 
     // ── Boss 召唤 ──
-    if (this.zType === 'boss' && this.hp > 0) {
+    if (this.isBoss && this.hp > 0) {
       this.summonTimer += dt;
       const summonInterval = BOSS_SUMMON_INTERVAL * (this.bossPhase === 2 ? 0.48 : 1);
       if (this.summonTimer >= summonInterval) {
@@ -535,7 +567,7 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     }
 
     // ── 召唤者 ──
-    if (this.zType === 'summoner' && this.hp > 0) {
+    if (this.archetype === 'summoner' && this.hp > 0) {
       this.summonTimer += dt;
       if (this.summonTimer >= SUMMONER_INTERVAL) {
         this.summonTimer = 0;
@@ -548,7 +580,7 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     }
 
     // ── 治愈者 ──
-    if (this.zType === 'healer' && this.hp > 0 && this.onHeal) {
+    if (this.archetype === 'healer' && this.hp > 0 && this.onHeal) {
       this.healTimer += dt;
       if (this.healTimer >= HEALER_HEAL_INTERVAL) {
         this.healTimer = 0;

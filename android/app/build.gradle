@@ -2,6 +2,10 @@ apply plugin: 'com.android.application'
 
 def releaseKeystorePath = System.getenv('ANDROID_KEYSTORE_PATH')
 def hasReleaseKeystore = releaseKeystorePath != null && !releaseKeystorePath.isBlank()
+def versionCodeEnv = System.getenv('ANDROID_VERSION_CODE')?.trim()
+def versionNameEnv = System.getenv('ANDROID_VERSION_NAME')?.trim()
+def resolvedVersionCode = versionCodeEnv ? versionCodeEnv.toInteger() : 1
+def resolvedVersionName = versionNameEnv ?: '0.1.0'
 
 android {
     namespace "io.github.tjujingzong.zombiecannon"
@@ -20,8 +24,8 @@ android {
         applicationId "io.github.tjujingzong.zombiecannon"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode = (System.getenv('ANDROID_VERSION_CODE') ?: '1').toInteger()
-        versionName = System.getenv('ANDROID_VERSION_NAME') ?: '0.1.0'
+        versionCode resolvedVersionCode
+        versionName resolvedVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

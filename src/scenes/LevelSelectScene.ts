@@ -49,6 +49,7 @@ export class LevelSelectScene extends Phaser.Scene {
   private scrollHitbox!: Phaser.GameObjects.Zone;
   private scrollbar!: Phaser.GameObjects.Graphics;
   private pageLabel!: Phaser.GameObjects.Text;
+  private pageNavBand!: Phaser.GameObjects.Rectangle;
   private chapterPage = 0;
   private activeTab: 'levels' | 'shop' | 'arsenal' | 'modules' = 'levels';
   private tabButtons: Phaser.GameObjects.Container[] = [];
@@ -89,6 +90,9 @@ export class LevelSelectScene extends Phaser.Scene {
     this.arsenalContainer = this.add.container(0, 188).setVisible(false);
     this.moduleContainer = this.add.container(0, 188).setVisible(false);
     this.contentContainer.add([this.levelsContainer, this.shopContainer, this.arsenalContainer, this.moduleContainer]);
+    const contentMaskShape = this.make.graphics({ x: 0, y: 0 });
+    contentMaskShape.fillStyle(0xffffff).fillRect(0, 188, GAME_WIDTH, GAME_HEIGHT - 208);
+    this.contentContainer.setMask(contentMaskShape.createGeometryMask());
     this.scrollbar = this.add.graphics().setDepth(8);
 
     this.tabButtons = [
@@ -113,7 +117,10 @@ export class LevelSelectScene extends Phaser.Scene {
       Math.floor((SaveManager.unlockedLevel - 1) / LEVEL_ENGINE_INFO.chapterSize),
       0, Math.ceil(TOTAL_LEVELS / LEVEL_ENGINE_INFO.chapterSize) - 1,
     );
-    this.pageLabel = this.add.text(cx, 164, '', textStyle(20, '#b0bec5')).setOrigin(0.5);
+    this.pageNavBand = this.add.rectangle(cx, GAME_HEIGHT - 48, GAME_WIDTH, 86, 0x101820, 0.96)
+      .setDepth(7);
+    this.pageLabel = this.add.text(cx, GAME_HEIGHT - 48, '', textStyle(19, '#b0bec5'))
+      .setOrigin(0.5).setDepth(9);
     this.buildLevelPage();
     this.buildShopPage();
     this.buildArsenalPage();
@@ -248,7 +255,8 @@ export class LevelSelectScene extends Phaser.Scene {
       const row = Math.floor(index / 2);
       this.createArmoryCard(item, 190 + col * 340, 190 + row * 254);
     });
-    this.arsenalContentHeight = 188 + 190 + 3 * 254 + 20;
+    const rows = Math.ceil(ARMORY_ITEMS.length / 2);
+    this.arsenalContentHeight = 188 + 190 + rows * 254 + 20;
     if (this.activeTab === 'arsenal') this.contentHeight = this.arsenalContentHeight;
   }
 
@@ -304,43 +312,49 @@ export class LevelSelectScene extends Phaser.Scene {
     this.moduleContainer.add(this.add.text(
       GAME_WIDTH / 2,
       64,
-      '三槽同时生效 · 3 × 3 × 3 = 27 种战斗组合',
+      '三槽同时生效 · 5 × 5 × 5 = 125 种战斗组合 · 6 套伙伴协议',
       textStyle(16, '#9ba8b2'),
     ).setOrigin(0.5));
 
     const slots: BehaviorEquipmentSlot[] = ['barrel', 'ammo', 'wall'];
-    slots.forEach((slot, row) => {
+    let cursorY = 106;
+    slots.forEach((slot) => {
       const items = BEHAVIOR_EQUIPMENT.filter((item) => item.slot === slot);
-      const headerY = 106 + row * 252;
+      const headerY = cursorY;
       this.moduleContainer.add(this.add.text(30, headerY, BEHAVIOR_SLOT_LABELS[slot], {
         fontFamily: FONT, fontSize: '20px', fontStyle: 'bold', color: '#ffffff',
       }));
-      this.moduleContainer.add(this.add.text(GAME_WIDTH - 30, headerY + 2, '三选一', {
+      this.moduleContainer.add(this.add.text(GAME_WIDTH - 30, headerY + 2, `${items.length} 选一`, {
         ...textStyle(15, '#78909c'), align: 'right',
       }).setOrigin(1, 0));
-      items.forEach((item, col) => this.createModuleCard(item, 124 + col * 236, headerY + 121));
+      items.forEach((item, index) => {
+        const col = index % 3;
+        const row = Math.floor(index / 3);
+        this.createModuleCard(item, 124 + col * 236, headerY + 145 + row * 228);
+      });
+      cursorY += Math.ceil(items.length / 3) * 228 + 48;
     });
 
-    const companionHeaderY = 862;
+    const companionHeaderY = cursorY;
     this.moduleContainer.add(this.add.text(30, companionHeaderY, '战术伙伴 R-7 · 协同协议', {
       fontFamily: FONT, fontSize: '20px', fontStyle: 'bold', color: '#ffffff',
     }));
-    this.moduleContainer.add(this.add.text(GAME_WIDTH - 30, companionHeaderY + 2, '三选一', {
+    this.moduleContainer.add(this.add.text(GAME_WIDTH - 30, companionHeaderY + 2, `${COMPANION_PROTOCOLS.length} 选一`, {
       ...textStyle(15, '#78909c'), align: 'right',
     }).setOrigin(1, 0));
-    COMPANION_PROTOCOLS.forEach((protocol, col) => {
-      this.createCompanionCard(protocol, 124 + col * 236, companionHeaderY + 121);
+    COMPANION_PROTOCOLS.forEach((protocol, index) => {
+      const col = index % 3;
+      const row = Math.floor(index / 3);
+      this.createCompanionCard(protocol, 124 + col * 236, companionHeaderY + 145 + row * 228);
     });
 
-    const challengeHeaderY = 1132;
+    cursorY += Math.ceil(COMPANION_PROTOCOLS.length / 3) * 228 + 66;
+    const challengeHeaderY = cursorY;
     this.moduleContainer.add(this.add.text(30, challengeHeaderY, '自定义挑战契约', {
       fontFamily: FONT, fontSize: '20px', fontStyle: 'bold', color: '#ffffff',
     }));
-    this.moduleContainer.add(this.add.text(GAME_WIDTH - 30, challengeHeaderY + 2, '开局生效 · 高风险高回报', {
-      ...textStyle(15, '#78909c'), align: 'right',
-    }).setOrigin(1, 0));
     const equippedContract = SaveManager.getChallengeContract();
-    const clearContract = createButton(this, GAME_WIDTH - 58, challengeHeaderY + 38, '清除', () => {
+    const clearContract = createButton(this, GAME_WIDTH - 58, challengeHeaderY + 20, '清除', () => {
       SaveManager.equipChallengeContract('none');
       AudioSystem.play('ui_click');
       this.buildModulePage();
@@ -353,7 +367,7 @@ export class LevelSelectScene extends Phaser.Scene {
       this.createChallengeCard(contract, 124 + col * 236, challengeHeaderY + 157);
     });
 
-    this.moduleContentHeight = 188 + 1428;
+    this.moduleContentHeight = 188 + challengeHeaderY + 290;
     if (this.activeTab === 'modules') this.contentHeight = this.moduleContentHeight;
   }
 
@@ -482,6 +496,7 @@ export class LevelSelectScene extends Phaser.Scene {
     this.tabButtons[2].setAlpha(tab === 'arsenal' ? 1 : 0.62);
     this.tabButtons[3].setAlpha(tab === 'modules' ? 1 : 0.62);
     this.pageLabel.setVisible(tab === 'levels');
+    this.pageNavBand.setVisible(tab === 'levels');
     this.pageButtons.forEach((b) => b.setVisible(tab === 'levels'));
     this.contentHeight = tab === 'levels'
       ? this.levelContentHeight
@@ -497,18 +512,20 @@ export class LevelSelectScene extends Phaser.Scene {
     this.pageButtons = [];
     const maxPage = Math.ceil(TOTAL_LEVELS / LEVEL_ENGINE_INFO.chapterSize) - 1;
     if (this.chapterPage > 0) {
-      this.pageButtons.push(createButton(this, 74, 164, '◀', () => {
+      const previous = createButton(this, 74, GAME_HEIGHT - 48, '◀', () => {
         this.chapterPage--;
         this.buildLevelPage();
         this.refreshPageControls();
-      }, { width: 58, height: 42, fontSize: 20, color: 0x455a64, colorDown: 0x37474f }));
+      }, { width: 58, height: 42, fontSize: 20, color: 0x455a64, colorDown: 0x37474f }).setDepth(9);
+      this.pageButtons.push(previous);
     }
     if (this.chapterPage < maxPage) {
-      this.pageButtons.push(createButton(this, GAME_WIDTH - 74, 164, '▶', () => {
+      const next = createButton(this, GAME_WIDTH - 74, GAME_HEIGHT - 48, '▶', () => {
         this.chapterPage++;
         this.buildLevelPage();
         this.refreshPageControls();
-      }, { width: 58, height: 42, fontSize: 20, color: 0x455a64, colorDown: 0x37474f }));
+      }, { width: 58, height: 42, fontSize: 20, color: 0x455a64, colorDown: 0x37474f }).setDepth(9);
+      this.pageButtons.push(next);
     }
   }
 
@@ -630,7 +647,8 @@ export class LevelSelectScene extends Phaser.Scene {
   // ── 滚动 ──
   private setScroll(target: number): void {
     const viewTop = 188;
-    const viewH = GAME_HEIGHT - viewTop - 20;
+    const bottomInset = this.activeTab === 'levels' ? 92 : 20;
+    const viewH = GAME_HEIGHT - viewTop - bottomInset;
     const maxScroll = Math.max(0, this.contentHeight - (viewTop + viewH));
     this.scrollY = Phaser.Math.Clamp(target, 0, maxScroll);
     this.contentContainer.setY(-this.scrollY);
@@ -644,7 +662,8 @@ export class LevelSelectScene extends Phaser.Scene {
   private drawScrollbar(): void {
     this.scrollbar.clear();
     const viewTop = 188;
-    const viewH = GAME_HEIGHT - viewTop - 20;
+    const bottomInset = this.activeTab === 'levels' ? 92 : 20;
+    const viewH = GAME_HEIGHT - viewTop - bottomInset;
     const contentLength = Math.max(viewH, this.contentHeight - viewTop);
     if (contentLength <= viewH) return;
     const trackX = GAME_WIDTH - 8;

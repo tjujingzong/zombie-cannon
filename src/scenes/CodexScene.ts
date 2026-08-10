@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH } from '../data/balance';
-import { ZOMBIE_TYPES, ZOMBIE_CODEX, type ZombieTypeKey } from '../data/balance';
+import { DAMAGE_ELEMENTS, ZOMBIE_TYPES, ZOMBIE_CODEX, type ZombieTypeKey } from '../data/balance';
 import { SKILLS, SYNERGIES, RARITY_LABEL, RARITY_HEX } from '../data/skills';
 import { LEVEL_ENGINE_INFO } from '../data/levels';
 import { createButton, FONT, textStyle, titleStyle } from '../ui/helpers';
@@ -63,6 +63,9 @@ export class CodexScene extends Phaser.Scene {
 
     // 内容容器
     this.contentContainer = this.add.container(0, 180).setDepth(5);
+    const contentMaskShape = this.make.graphics({ x: 0, y: 0 });
+    contentMaskShape.fillStyle(0xffffff).fillRect(0, 180, GAME_WIDTH, GAME_HEIGHT - 280);
+    this.contentContainer.setMask(contentMaskShape.createGeometryMask());
 
     // 滚动条 + 滚动 hitbox
     this.scrollbar = this.add.graphics().setDepth(6);
@@ -137,24 +140,29 @@ export class CodexScene extends Phaser.Scene {
       const stats = ZOMBIE_TYPES[type];
       const codex = ZOMBIE_CODEX[type];
       const threat = Phaser.Math.Clamp(codex.threat, 1, 5);
-      const cardH = 230;
-
-      const g = this.add.graphics();
-      g.fillStyle(0x000000, 0.25).fillRoundedRect(margin + 2, y + 3, cardW, cardH, 14);
-      g.fillStyle(0x1b2733, 1).fillRoundedRect(margin, y, cardW, cardH, 14);
-      // 左侧色带
-      g.fillStyle(THREAT_COLORS[threat - 1], 1).fillRoundedRect(margin, y, 8, cardH, { tl: 14, tr: 0, bl: 14, br: 0 });
 
       // 僵尸预览
-      const preview = this.add.image(margin + 70, y + 70, stats.texture).setScale(stats.scale * 1.1);
+      const preview = this.add.image(margin + 70, y + 72, stats.artTexture ?? stats.texture);
+      if (stats.artTexture) {
+        const previewHeight = 108;
+        preview.setDisplaySize(preview.width * (previewHeight / preview.height), previewHeight);
+      } else {
+        preview.setScale(stats.scale * 1.1);
+      }
 
       // 名称 + 威胁
       const nameTxt = this.add.text(margin + 130, y + 16, codex.role, {
         fontFamily: FONT, fontSize: '24px', fontStyle: 'bold', color: '#ffd54a',
       });
+      const element = DAMAGE_ELEMENTS[stats.element];
+      const elementBadge = this.add.text(margin + 130, y + 48, `${element.shortName} · ${element.name}`, {
+        fontFamily: FONT, fontSize: '15px', fontStyle: 'bold',
+        color: `#${element.color.toString(16).padStart(6, '0')}`,
+        backgroundColor: '#101820', padding: { x: 8, y: 3 },
+      });
       // 威胁星
       const threatStr = '★'.repeat(threat) + '☆'.repeat(5 - threat);
-      const threatTxt = this.add.text(margin + 130, y + 46, `威胁 ${threatStr}`, {
+      const threatTxt = this.add.text(margin + 280, y + 50, `威胁 ${threatStr}`, {
         fontFamily: FONT, fontSize: '16px', color: '#' + THREAT_COLORS[threat - 1].toString(16).padStart(6, '0'),
       });
       // 首次出现
@@ -164,27 +172,41 @@ export class CodexScene extends Phaser.Scene {
 
       // 数值
       const statsTxt = this.add.text(
-        margin + 130, y + 76,
+        margin + 130, y + 82,
         `耐久 ${stats.hp}  速度 ${stats.speed}  攻城 ${stats.damage}  赏金 ${stats.coin}`,
         { fontFamily: FONT, fontSize: '17px', color: '#b0bec5' }
       );
 
       // 行为
-      const behavTxt = this.add.text(margin + 16, y + 108, `行为: ${codex.behavior}`, {
-        ...textStyle(15, '#aab8c2'), wordWrap: { width: cardW - 32 }
+      const behavTxt = this.add.text(margin + 16, y + 120, `行为：${codex.behavior}`, {
+        ...textStyle(16, '#c3cdd4'), wordWrap: { width: cardW - 32, useAdvancedWrap: true }, lineSpacing: 3,
       });
-
-      // 弱点
-      const weakTxt = this.add.text(margin + 16, y + 150, `弱点: ${codex.weaknesses.join('、')}`, {
-        ...textStyle(15, '#ff8a65'), fontStyle: 'bold', wordWrap: { width: cardW - 32 }
+      let flowY = behavTxt.y + behavTxt.height + 8;
+      const weakTxt = this.add.text(margin + 16, flowY, `弱点：${codex.weaknesses.join('、') || '无'}`, {
+        ...textStyle(16, '#ff8a65'), fontStyle: 'bold', wordWrap: { width: cardW - 32, useAdvancedWrap: true },
       });
-
-      // 应对
-      const counterTxt = this.add.text(margin + 16, y + 180, `对策: ${codex.counter}`, {
-        ...textStyle(15, '#8fbf8f'), wordWrap: { width: cardW - 32 }
+      flowY += weakTxt.height + 6;
+      const resistTxt = this.add.text(margin + 16, flowY, `抗性：${codex.resistances.join('、') || '无'}`, {
+        ...textStyle(16, '#80cbc4'), fontStyle: 'bold', wordWrap: { width: cardW - 32, useAdvancedWrap: true },
       });
+      flowY += resistTxt.height + 6;
+      const immuneTxt = this.add.text(margin + 16, flowY, `免疫：${codex.immunities.join('、') || '无'}`, {
+        ...textStyle(16, '#ce93d8'), fontStyle: 'bold', wordWrap: { width: cardW - 32, useAdvancedWrap: true },
+      });
+      flowY += immuneTxt.height + 8;
+      const counterTxt = this.add.text(margin + 16, flowY, `对策：${codex.counter}`, {
+        ...textStyle(16, '#9ccc9c'), wordWrap: { width: cardW - 32, useAdvancedWrap: true }, lineSpacing: 3,
+      });
+      const cardH = counterTxt.y - y + counterTxt.height + 16;
+      const g = this.add.graphics();
+      g.fillStyle(0x000000, 0.25).fillRoundedRect(margin + 2, y + 3, cardW, cardH, 8);
+      g.fillStyle(0x1b2733, 1).fillRoundedRect(margin, y, cardW, cardH, 8);
+      g.fillStyle(THREAT_COLORS[threat - 1], 1).fillRoundedRect(margin, y, 8, cardH, { tl: 8, tr: 0, bl: 8, br: 0 });
 
-      this.contentContainer.add([g, preview, nameTxt, threatTxt, firstTxt, statsTxt, behavTxt, weakTxt, counterTxt]);
+      this.contentContainer.add([
+        g, preview, nameTxt, elementBadge, threatTxt, firstTxt, statsTxt,
+        behavTxt, weakTxt, resistTxt, immuneTxt, counterTxt,
+      ]);
       y += cardH + padding;
     });
 
@@ -209,32 +231,35 @@ export class CodexScene extends Phaser.Scene {
       this.contentContainer.add([titleBg, title]);
       y += 50;
       const skills = SKILLS.filter((s) => s.category === cat.key);
-      skills.forEach((s, i) => {
-        const col = i % 2;
-        const x = margin + col * (cardW + 16);
-        const cardH = 150;
-        const g = this.add.graphics();
-        const borderColor = parseInt(RARITY_HEX[s.rarity].replace('#', ''), 16);
-        g.fillStyle(0x1b2733, 1).fillRoundedRect(x, y, cardW, cardH, 12);
-        g.lineStyle(2, borderColor, 0.8).strokeRoundedRect(x, y, cardW, cardH, 12);
-        g.fillStyle(borderColor, 0.25).fillRoundedRect(x, y, cardW, 32, { tl: 12, tr: 12, bl: 0, br: 0 });
-
-        const icon = this.add.image(x + 32, y + 64, s.icon).setScale(0.9);
-        const nameTxt = this.add.text(x + 64, y + 8, s.name, {
-          fontFamily: FONT, fontSize: '18px', fontStyle: 'bold', color: '#ffffff',
+      for (let rowStart = 0; rowStart < skills.length; rowStart += 2) {
+        const rowSkills = skills.slice(rowStart, rowStart + 2);
+        const entries = rowSkills.map((s, col) => {
+          const x = margin + col * (cardW + 16);
+          const descTxt = this.add.text(x + 64, y + 40, s.desc, {
+            ...textStyle(14, '#aab8c2'),
+            wordWrap: { width: cardW - 76, useAdvancedWrap: true }, lineSpacing: 3,
+          });
+          return { s, x, descTxt };
         });
-        const rarityTxt = this.add.text(x + cardW - 10, y + 8, RARITY_LABEL[s.rarity], {
-          fontFamily: FONT, fontSize: '13px', fontStyle: 'bold', color: RARITY_HEX[s.rarity],
-        }).setOrigin(1, 0);
-        const descTxt = this.add.text(x + 64, y + 36, s.desc, {
-          ...textStyle(13, '#aab8c2'), wordWrap: { width: cardW - 72 }
+        const cardH = Math.max(158, ...entries.map((entry) => 78 + entry.descTxt.height + 28));
+        entries.forEach(({ s, x, descTxt }) => {
+          const g = this.add.graphics();
+          const borderColor = parseInt(RARITY_HEX[s.rarity].replace('#', ''), 16);
+          g.fillStyle(0x1b2733, 1).fillRoundedRect(x, y, cardW, cardH, 8);
+          g.lineStyle(2, borderColor, 0.8).strokeRoundedRect(x, y, cardW, cardH, 8);
+          g.fillStyle(borderColor, 0.25).fillRoundedRect(x, y, cardW, 34, { tl: 8, tr: 8, bl: 0, br: 0 });
+          const icon = this.add.image(x + 32, y + 70, s.icon).setScale(0.82);
+          const nameTxt = this.add.text(x + 64, y + 8, s.name, {
+            fontFamily: FONT, fontSize: '17px', fontStyle: 'bold', color: '#ffffff',
+          });
+          const rarityTxt = this.add.text(x + cardW - 10, y + 10, RARITY_LABEL[s.rarity], {
+            fontFamily: FONT, fontSize: '12px', fontStyle: 'bold', color: RARITY_HEX[s.rarity],
+          }).setOrigin(1, 0);
+          const maxTxt = this.add.text(x + 64, y + cardH - 24, `最大 ${s.maxLevel} 级`, textStyle(12, '#7a8a99'));
+          this.contentContainer.add([g, icon, nameTxt, rarityTxt, descTxt, maxTxt]);
         });
-        const maxTxt = this.add.text(x + 64, y + 110, `最大 ${s.maxLevel} 级`, textStyle(12, '#7a8a99'));
-
-        this.contentContainer.add([g, icon, nameTxt, rarityTxt, descTxt, maxTxt]);
-        if (col === 1) y += cardH + padding;
-      });
-      if (skills.length % 2 !== 0) y += 150 + padding;
+        y += cardH + padding;
+      }
     });
     this.contentHeight = y;
   }
@@ -246,12 +271,6 @@ export class CodexScene extends Phaser.Scene {
     let y = 20;
     const padding = 14;
     SYNERGIES.forEach((syn) => {
-      const cardH = 130;
-      const g = this.add.graphics();
-      g.fillStyle(0x000000, 0.25).fillRoundedRect(margin + 2, y + 3, cardW, cardH, 14);
-      g.fillStyle(0x251a0a, 1).fillRoundedRect(margin, y, cardW, cardH, 14);
-      g.fillStyle(0xffa726, 0.5).fillRoundedRect(margin, y, 8, cardH, { tl: 14, tr: 0, bl: 14, br: 0 });
-
       const icon = this.add.image(margin + 60, y + 50, syn.icon).setDisplaySize(76, 76);
       const nameTxt = this.add.text(margin + 110, y + 16, syn.name, {
         fontFamily: FONT, fontSize: '22px', fontStyle: 'bold', color: '#ffd54a',
@@ -261,16 +280,22 @@ export class CodexScene extends Phaser.Scene {
       }).setOrigin(1, 0);
 
       const descTxt = this.add.text(margin + 110, y + 50, syn.desc, {
-        ...textStyle(16, '#e0c8a0'), wordWrap: { width: cardW - 130 }
+        ...textStyle(16, '#e0c8a0'), wordWrap: { width: cardW - 130, useAdvancedWrap: true }, lineSpacing: 3,
       });
 
       const reqTexts = syn.requires.map((r) => {
         const sk = SKILLS.find((s) => s.key === r.skill);
         return `${sk?.name ?? '未知技能'} ${r.minLevel}级`;
       });
-      const reqTxt = this.add.text(margin + 16, y + 95, `需要: ${reqTexts.join('  +  ')}`, {
-        ...textStyle(14, '#8a9aa8'), fontStyle: 'bold', wordWrap: { width: cardW - 32 }
+      const reqY = Math.max(y + 100, descTxt.y + descTxt.height + 10);
+      const reqTxt = this.add.text(margin + 16, reqY, `需要：${reqTexts.join('  +  ')}`, {
+        ...textStyle(14, '#8a9aa8'), fontStyle: 'bold', wordWrap: { width: cardW - 32, useAdvancedWrap: true },
       });
+      const cardH = reqTxt.y - y + reqTxt.height + 16;
+      const g = this.add.graphics();
+      g.fillStyle(0x000000, 0.25).fillRoundedRect(margin + 2, y + 3, cardW, cardH, 8);
+      g.fillStyle(0x251a0a, 1).fillRoundedRect(margin, y, cardW, cardH, 8);
+      g.fillStyle(0xffa726, 0.5).fillRoundedRect(margin, y, 8, cardH, { tl: 8, tr: 0, bl: 8, br: 0 });
 
       this.contentContainer.add([g, icon, nameTxt, label, descTxt, reqTxt]);
       y += cardH + padding;
@@ -376,18 +401,19 @@ export class CodexScene extends Phaser.Scene {
     ];
 
     guides.forEach((gd) => {
-      const cardH = 30 + Math.ceil(gd.body.length / 26) * 22;
-      const g = this.add.graphics();
-      g.fillStyle(0x000000, 0.25).fillRoundedRect(margin + 2, y + 3, cardW, cardH, 14);
-      g.fillStyle(0x1b2733, 1).fillRoundedRect(margin, y, cardW, cardH, 14);
-      g.fillStyle(gd.color, 1).fillRoundedRect(margin, y, 8, cardH, { tl: 14, tr: 0, bl: 14, br: 0 });
-
       const title = this.add.text(margin + 20, y + 14, gd.title, {
         fontFamily: FONT, fontSize: '22px', fontStyle: 'bold', color: '#' + gd.color.toString(16).padStart(6, '0'),
       });
       const body = this.add.text(margin + 20, y + 50, gd.body, {
-        ...textStyle(16, '#cfd8dc'), wordWrap: { width: cardW - 40 }, align: 'left',
+        ...textStyle(19, '#d7e0e5'),
+        wordWrap: { width: cardW - 40, useAdvancedWrap: true },
+        align: 'left', lineSpacing: 6,
       });
+      const cardH = body.y - y + body.height + 20;
+      const g = this.add.graphics();
+      g.fillStyle(0x000000, 0.25).fillRoundedRect(margin + 2, y + 3, cardW, cardH, 8);
+      g.fillStyle(0x1b2733, 1).fillRoundedRect(margin, y, cardW, cardH, 8);
+      g.fillStyle(gd.color, 1).fillRoundedRect(margin, y, 8, cardH, { tl: 8, tr: 0, bl: 8, br: 0 });
       this.contentContainer.add([g, title, body]);
       y += cardH + padding;
     });

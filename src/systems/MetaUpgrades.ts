@@ -30,4 +30,28 @@ export const MetaUpgrades = {
   flatCoinBonus(): number {
     return SaveManager.getMetaLevel('salvage');
   },
+
+  baseCritChance(): number {
+    return SaveManager.getMetaLevel('critTraining') * 0.015;
+  },
+
+  elementalWeaknessBonus(): number {
+    return SaveManager.getMetaLevel('elementalResearch') * 0.03;
+  },
+
+  basePierce(): number {
+    return Math.floor(SaveManager.getMetaLevel('penetration') / 3);
+  },
+
+  initialShield(): number {
+    return SaveManager.getMetaLevel('startingShield') * 12;
+  },
+
+  overdriveGainMultiplier(): number {
+    return 1 + SaveManager.getMetaLevel('overdriveGain') * 0.05;
+  },
+
+  eliteBountyMultiplier(): number {
+    return 1 + SaveManager.getMetaLevel('eliteBounty') * 0.08;
+  },
 };
