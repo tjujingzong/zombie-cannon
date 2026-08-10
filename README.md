@@ -2,11 +2,11 @@
 
 > 一款把“瞄准、爆发、清屏、再来一波”压缩进竖屏的末日塔防射击游戏。
 
-[在线游玩](https://tjujingzong.github.io/zombie-cannon/) · [下载 Android APK](https://github.com/tjujingzong/zombie-cannon/releases/download/android-latest/zombie-cannon-android.apk) · [查看全部 Releases](https://github.com/tjujingzong/zombie-cannon/releases)
+[在线游玩](https://tjujingzong.github.io/zombie-cannon/) · [下载 Android 1.0 APK](https://github.com/tjujingzong/zombie-cannon/releases/download/v1.0.0/zombie-cannon-v1.0.0.apk) · [查看全部 Releases](https://github.com/tjujingzong/zombie-cannon/releases)
 
 ![Phaser 3](https://img.shields.io/badge/Phaser-3.85-2f855a) ![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178c6) ![Android](https://img.shields.io/badge/Android-APK-3ddc84) ![Enemies](https://img.shields.io/badge/Enemies-55-ef5350) ![Skills](https://img.shields.io/badge/Skills-48-ffca28)
 
-![战斗画面](pics/qa/16-art-pass-battle-wide.png)
+![战斗画面](https://raw.githubusercontent.com/tjujingzong/zombie-cannon/main/pics/zombie-cannon-v1.0-battle.png)
 
 ## 为什么它玩起来很解压
 
@@ -22,7 +22,7 @@
 
 | 系统 | 当前内容 |
 | --- | --- |
-| 关卡 | 50 关；1~10 关手工教学，11~50 关由确定性随机引擎生成；每 5 关进入 Boss 战 |
+| 关卡 | 50 关；第 1 至第 10 关为手工教学，第 11 至第 50 关由确定性随机引擎生成；每 5 关进入 Boss 战 |
 | 敌人 | 55 类：18 个基础行为单位、32 个程序绘制元素变体、5 个正式立绘元素 Boss |
 | 元素 | 动能、火焰、寒冰、雷电、爆破、腐蚀、能量、引力；弱点 ×1.55、抗性 ×0.58、免疫 ×0 |
 | 技能 | 48 个局内技能、29 个组合技、过载主动爆发与四条终极构筑路线 |
@@ -38,11 +38,11 @@
 
 最直接的下载地址：
 
-**[下载 zombie-cannon-android.apk](https://github.com/tjujingzong/zombie-cannon/releases/download/android-latest/zombie-cannon-android.apk)**
+**[下载正式版 zombie-cannon-v1.0.0.apk](https://github.com/tjujingzong/zombie-cannon/releases/download/v1.0.0/zombie-cannon-v1.0.0.apk)**
 
-也可以打开 [Android 最新体验版 Release](https://github.com/tjujingzong/zombie-cannon/releases/tag/android-latest)，展开页面底部的 **Assets**，点击 `zombie-cannon-android.apk`。如果只看到 `Source code`，通常表示当前构建尚未成功完成；可进入仓库的 **Actions -> Build Android APK** 查看状态。
+也可以打开 [v1.0.0 正式版 Release](https://github.com/tjujingzong/zombie-cannon/releases/tag/v1.0.0)，展开页面底部的 **Assets**，点击 `zombie-cannon-v1.0.0.apk`。持续集成版仍可从 [Android 最新体验版](https://github.com/tjujingzong/zombie-cannon/releases/tag/android-latest) 下载。
 
-体验版由 GitHub Actions 在每次推送 `main` 后自动构建，并覆盖 `android-latest` 标签下的同名 APK。首次安装时，Android 会提示允许浏览器或文件管理器“安装未知应用”。正式签名版使用 `v*` 标签发布，文件名类似 `zombie-cannon-v0.2.0.apk`。
+体验版由 GitHub Actions 在每次推送 `main` 后自动构建，并覆盖 `android-latest` 标签下的同名 APK。首次安装时，Android 会提示允许浏览器或文件管理器“安装未知应用”。正式签名版使用 `v*` 标签发布，当前正式版本为 `v1.0.0`。
 
 ## 本地运行
 
@@ -91,8 +91,8 @@ android/app/build/outputs/apk/debug/app-debug.apk
 然后推送版本标签：
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
 发布密钥用于首个正式版本后必须长期保留，并且不能提交到 Git。
