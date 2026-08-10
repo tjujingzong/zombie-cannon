@@ -38,11 +38,11 @@
 
 最直接的下载地址：
 
-**[下载正式版 zombie-cannon-v1.0.0.apk](https://github.com/tjujingzong/zombie-cannon/releases/download/v1.0.0/zombie-cannon-v1.0.0.apk)**
+**[下载 Android 1.0 安装包 zombie-cannon-v1.0.0.apk](https://github.com/tjujingzong/zombie-cannon/releases/download/v1.0.0/zombie-cannon-v1.0.0.apk)**
 
-也可以打开 [v1.0.0 正式版 Release](https://github.com/tjujingzong/zombie-cannon/releases/tag/v1.0.0)，展开页面底部的 **Assets**，点击 `zombie-cannon-v1.0.0.apk`。持续集成版仍可从 [Android 最新体验版](https://github.com/tjujingzong/zombie-cannon/releases/tag/android-latest) 下载。
+也可以打开 [v1.0.0 Release](https://github.com/tjujingzong/zombie-cannon/releases/tag/v1.0.0)，展开页面底部的 **Assets**，点击 `zombie-cannon-v1.0.0.apk`。持续集成版仍可从 [Android 最新体验版](https://github.com/tjujingzong/zombie-cannon/releases/tag/android-latest) 下载。
 
-体验版由 GitHub Actions 在每次推送 `main` 后自动构建，并覆盖 `android-latest` 标签下的同名 APK。首次安装时，Android 会提示允许浏览器或文件管理器“安装未知应用”。正式签名版使用 `v*` 标签发布，当前正式版本为 `v1.0.0`。
+体验版由 GitHub Actions 在每次推送 `main` 后自动构建，并覆盖 `android-latest` 标签下的同名 APK。首次安装时，Android 会提示允许浏览器或文件管理器“安装未知应用”。`v*` 标签会发布固定版本安装包；配置发布密钥时使用正式签名，否则 CI 使用 Android 调试证书生成可安装 APK。当前固定版本为 `v1.0.0`。
 
 ## 本地运行
 

@@ -88,35 +88,36 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Validate signing secrets
+      - name: Resolve signing mode
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          missing=0
           for value in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
             if [ -z "${!value}" ]; then
-              echo "::error::Missing GitHub Actions secret: $value"
-              exit 1
+              echo "::warning::Missing GitHub Actions secret: $value"
+              missing=1
             fi
           done
-
-      - name: Prepare release version and keystore
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-        run: |
           echo "ANDROID_VERSION_NAME=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
           echo "ANDROID_VERSION_CODE=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
-          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/zombie-cannon-release.jks" >> "$GITHUB_ENV"
-          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/zombie-cannon-release.jks"
+          if [ "$missing" -eq 0 ]; then
+            echo "ANDROID_RELEASE_SIGNING=true" >> "$GITHUB_ENV"
+            echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/zombie-cannon-release.jks" >> "$GITHUB_ENV"
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/zombie-cannon-release.jks"
+          else
+            echo "ANDROID_RELEASE_SIGNING=false" >> "$GITHUB_ENV"
+          fi
 
       - name: Install and sync web app
         run: |
           npm ci
           npm run android:sync
 
-      - name: Build signed release APK
+      - name: Build APK
         working-directory: android
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -124,15 +125,24 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease --stacktrace
+          if [ "$ANDROID_RELEASE_SIGNING" = "true" ]; then
+            ./gradlew assembleRelease --stacktrace
+          else
+            ./gradlew assembleDebug --stacktrace
+          fi
 
       - name: Verify and stage APK
         run: |
-          APK="android/app/build/outputs/apk/release/app-release.apk"
-          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          if [ "$ANDROID_RELEASE_SIGNING" = "true" ]; then
+            APK="android/app/build/outputs/apk/release/app-release.apk"
+            APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+            test -n "$APKSIGNER"
+            "$APKSIGNER" verify --print-certs "$APK"
+          else
+            APK="android/app/build/outputs/apk/debug/app-debug.apk"
+            echo "::warning::Release signing secrets are missing; publishing a debug-signed installable APK for ${GITHUB_REF_NAME}."
+          fi
           test -f "$APK"
-          test -n "$APKSIGNER"
-          "$APKSIGNER" verify --print-certs "$APK"
           mkdir -p output
           cp "$APK" "output/zombie-cannon-${GITHUB_REF_NAME}.apk"
 
@@ -148,8 +158,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           APK="output/zombie-cannon-${GITHUB_REF_NAME}.apk"
+          if [ "$ANDROID_RELEASE_SIGNING" = "true" ]; then
+            SIGNING_LABEL="release keystore"
+          else
+            SIGNING_LABEL="Android debug certificate"
+          fi
+          NOTES=$(printf 'Zombie Cannon %s Android 安装包。\n\n- 提交：%s\n- 构建：%s/%s/actions/runs/%s\n- 签名：%s' "$GITHUB_REF_NAME" "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$SIGNING_LABEL")
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" "$APK" --clobber
+            gh release edit "$GITHUB_REF_NAME" --title "僵尸炮台 ${GITHUB_REF_NAME}" --notes "$NOTES"
           else
-            gh release create "$GITHUB_REF_NAME" "$APK" --generate-notes --title "僵尸炮台 ${GITHUB_REF_NAME}"
+            gh release create "$GITHUB_REF_NAME" "$APK" --title "僵尸炮台 ${GITHUB_REF_NAME}" --notes "$NOTES"
           fi
