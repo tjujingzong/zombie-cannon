@@ -786,7 +786,7 @@ export const SYNERGIES: SynergyDef[] = [
     key: 'apocalypseArray',
     name: '终极·湮灭阵列',
     desc: '伤害再 +25%，过载聚变转化率翻倍，墙体风险小幅缓和',
-    icon: 'icon_ultimate_apocalypse',
+    icon: 'art_ultimate_apocalypse_array_v1',
     requires: [
       { skill: 'glassCannon', minLevel: 2 },
       { skill: 'titanRound', minLevel: 3 },
@@ -798,7 +798,7 @@ export const SYNERGIES: SynergyDef[] = [
     key: 'ironDynasty',
     name: '终极·钢铁王朝',
     desc: '紧急修复提升至 60%，战斗回复 +50%，墙体减伤再提高',
-    icon: 'icon_ultimate_dynasty',
+    icon: 'art_ultimate_iron_dynasty_v1',
     requires: [
       { skill: 'insuranceProtocol', minLevel: 1 },
       { skill: 'blastDoors', minLevel: 3 },

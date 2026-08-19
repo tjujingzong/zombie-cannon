@@ -3,7 +3,7 @@ import { DAMAGE_ELEMENTS, ZOMBIE_DEFINITIONS } from '../data/balance';
 import { AudioSystem } from '../systems/AudioSystem';
 
 /**
- * BootScene：全部纹理用 graphics 程序化生成，生成完毕直接进入菜单
+ * BootScene：先加载正式位图，再生成程序纹理，完成后直接进入菜单
  */
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -17,10 +17,18 @@ export class BootScene extends Phaser.Scene {
     this.load.image('art_zombie_boss_tempest_v2', 'assets/generated/zombies/zombie-boss-tempest-v2.png');
     this.load.image('art_zombie_boss_plague_v2', 'assets/generated/zombies/zombie-boss-plague-v2.png');
     this.load.image('art_zombie_boss_void_v2', 'assets/generated/zombies/zombie-boss-void-v2.png');
+    this.load.image('art_zombie_boss_monarch_v1', 'assets/generated/zombies/zombie-boss-monarch-v1.png');
+    this.load.image('art_zombie_boss_solar_v1', 'assets/generated/zombies/zombie-boss-solar-v1.png');
+    this.load.image('art_zombie_boss_abyss_v1', 'assets/generated/zombies/zombie-boss-abyss-v1.png');
+    this.load.image('art_zombie_boss_blight_v1', 'assets/generated/zombies/zombie-boss-blight-v1.png');
+    this.load.image('art_zombie_boss_radiant_v1', 'assets/generated/zombies/zombie-boss-radiant-v1.png');
+    this.load.image('art_zombie_boss_omega_v1', 'assets/generated/zombies/zombie-boss-omega-v1.png');
     this.load.image('art_ultimate_elemental_cataclysm_v1', 'assets/generated/skills/ultimate-elemental-cataclysm-v1.png');
     this.load.image('art_ultimate_infinite_barrage_v1', 'assets/generated/skills/ultimate-infinite-barrage-v1.png');
     this.load.image('art_ultimate_orbital_command_v1', 'assets/generated/skills/ultimate-orbital-command-v1.png');
     this.load.image('art_ultimate_eternal_fortress_v1', 'assets/generated/skills/ultimate-eternal-fortress-v1.png');
+    this.load.image('art_ultimate_apocalypse_array_v1', 'assets/generated/skills/ultimate-apocalypse-array-v1.png');
+    this.load.image('art_ultimate_iron_dynasty_v1', 'assets/generated/skills/ultimate-iron-dynasty-v1.png');
   }
 
   create(): void {

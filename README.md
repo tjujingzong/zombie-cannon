@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 1.1.0" src="https://img.shields.io/badge/version-1.1.0-f9a825">
+  <img alt="Version 1.1.1" src="https://img.shields.io/badge/version-1.1.1-f9a825">
   <img alt="Phaser 3.85" src="https://img.shields.io/badge/Phaser-3.85-2f855a">
   <img alt="TypeScript 5.6" src="https://img.shields.io/badge/TypeScript-5.6-3178c6">
   <img alt="Android APK" src="https://img.shields.io/badge/Android-APK-3ddc84">
@@ -23,7 +23,7 @@
 
 ## 当前画面
 
-以下截图由 `v1.1.0` 当前代码在 720 × 1280 画布下实机渲染，不是概念图。
+以下截图由 `v1.1.1` 当前代码在 720 × 1280 画布下实机渲染，不是概念图。
 
 | 主菜单 | 终局章节 | 构筑战斗 |
 | --- | --- | --- |
@@ -39,7 +39,7 @@
 - **持续变化的单局**：压力契约、挑战契约、8 种精英词缀、8 种关卡词缀和随机战场事件共同改变出怪与奖励。
 - **长期玩法**：99 关战役、每日挑战、可复现种子的末日无尽、每周行动、终身成就、军械、三槽行为装备与 R-7 战术伙伴共用同一套离线存档结构。
 
-| 系统 | v1.1.0 内容规模 |
+| 系统 | v1.1.1 内容规模 |
 | --- | --- |
 | 战役 | 99 关；前 10 关手工编排，后 89 关确定性生成；每 5 关 Boss 战，第 21 关起出现关卡词缀 |
 | 敌人 | 110 类：18 个基础定义、81 个元素/深渊/梦魇变体、11 个新增首领 |
@@ -64,7 +64,7 @@
 | [最新体验版](https://github.com/tjujingzong/zombie-cannon/releases/download/android-latest/zombie-cannon-android.apk) | 跟随 `main`，包含最新玩法与修复 | 每次推送 `main` 后由 Actions 覆盖发布 |
 | [v1.0.0 稳定版](https://github.com/tjujingzong/zombie-cannon/releases/download/v1.0.0/zombie-cannon-v1.0.0.apk) | 固定版本，便于回退与复现 | 不再覆盖 |
 
-体验包从 `v1.1.0` 起使用递增的 Android `versionCode`。仓库配置完整发布签名 Secret 时，`main` 与 `v*` 标签都会使用同一 release keystore，可直接覆盖升级；缺少 Secret 时 CI 会回退到 debug 证书。若 Android 提示签名不一致，请先导出存档，再卸载旧包后安装新包。
+体验包从 `v1.1.0` 起使用递增的 Android `versionCode`，当前应用版本为 `1.1.1`。仓库配置完整发布签名 Secret 时，`main` 与 `v*` 标签都会使用同一 release keystore，可直接覆盖升级；缺少 Secret 时 CI 会回退到 debug 证书。若 Android 提示签名不一致，请先导出存档，再卸载旧包后安装新包。
 
 ## 本地开发
 
@@ -102,7 +102,7 @@ android/app/build/outputs/apk/debug/app-debug.apk
 可通过环境变量覆盖包版本：
 
 ```text
-ANDROID_VERSION_NAME=1.1.0
+ANDROID_VERSION_NAME=1.1.1
 ANDROID_VERSION_CODE=2
 ```
 
@@ -122,8 +122,8 @@ ANDROID_VERSION_CODE=2
 固定版本通过 `v*` 标签触发，例如：
 
 ```bash
-git tag v1.1.0
-git push origin v1.1.0
+git tag v1.1.1
+git push origin v1.1.1
 ```
 
 发布密钥一旦用于公开安装包就必须长期保留，且不能提交到 Git。没有完整签名配置时，工作流仍会生成可安装的 debug APK，但它不具备稳定的升级签名链。
@@ -141,7 +141,7 @@ android/                  Capacitor Android 原生工程
 docs/                     设计、路线图、素材规范与迭代记录
 ```
 
-普通敌人、后续首领与多数技能图标使用 Phaser 程序绘制，以保证同屏性能和统一轮廓；6 张首领立绘与 4 张终极技能图使用正式透明 PNG。资源边界、命名和验收规则见 [正式游戏素材规范](docs/generated-art-spec.md)。
+普通敌人和多数技能图标继续使用 Phaser 程序绘制，以保证同屏性能和统一轮廓；12 张首领立绘与 6 张终极技能图使用正式透明 PNG。资源边界、命名和验收规则见 [正式游戏素材规范](docs/generated-art-spec.md)。
 
 ## 文档
 

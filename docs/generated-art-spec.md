@@ -1,6 +1,6 @@
 # 正式游戏素材规范
 
-> 运行时资产审计：2026-08-19（v1.1.0）。本文只约束游戏实际加载的素材；`output/` 和 `tmp/` 中的生成源图、色键图与验证脚本不进入 Web 或 APK。
+> 运行时资产审计：2026-08-19（v1.1.1）。本文只约束游戏实际加载的素材；`output/` 和 `tmp/` 中的生成源图、色键图与验证脚本不进入 Web 或 APK。
 
 《僵尸炮台》采用“程序绘制为主、关键节点位图强化”的混合资源方案。普通尸潮需要高同屏、低内存和统一轮廓，因此由 Phaser Graphics 生成；正式透明 PNG 集中用于首领和少数终极技能。
 
@@ -10,17 +10,15 @@
 | --- | --- | --- | --- |
 | 普通、元素、深渊、梦魇敌人 | `BootScene.drawZombie()` 程序绘制 | 约 32–96 px | 共享骨架，靠轮廓附件、胸标、元素色和行为识别 |
 | 精英词缀 | 程序敌人 + 标签、色彩、光环与战斗特效 | 约 32–120 px | 能力可读，状态回池后可完整重置 |
-| 前 6 类首领 | 正式透明 PNG + 程序光环/王冠 | 源文件最长边 512 px | 关键首领拥有独特轮廓和登场冲击 |
-| 后 6 类首领 | Phaser 程序绘制 | 约 64–120 px | 控制资源预算，并与梦魇敌群保持一致 |
-| 前 4 个终极技能 | 正式透明 PNG | 64–256 px | 在技能卡和构筑面板中形成高辨识锚点 |
-| 湮灭阵列、钢铁王朝 | Phaser 程序图标 | 64 px | 与现有技能图标一致，避免把 UI 图标误当角色插画生产 |
+| 12 类首领 | 正式透明 PNG + 程序光环/王冠 | 源文件最长边 512 px | 所有首领拥有独特轮廓和登场冲击 |
+| 6 个终极技能 | 正式透明 PNG | 64–256 px | 在技能卡和构筑面板中形成高辨识锚点 |
 | 其余技能、军械、装备、伙伴 | Phaser 程序图标 | 32–96 px | 高对比、无文字、小尺寸清晰 |
 
 普通敌人不得批量改成 AI 角色位图。旧的四张精英位图已退出运行时；精英能力由原程序骨架、短标签和效果表达。
 
 ## 二、运行时位图清单
 
-### 首领：6 张
+### 首领：12 张
 
 | 纹理键 | 文件 | 对应角色 |
 | --- | --- | --- |
@@ -30,10 +28,16 @@
 | `art_zombie_boss_tempest_v2` | `public/assets/generated/zombies/zombie-boss-tempest-v2.png` | 雷暴主教 |
 | `art_zombie_boss_plague_v2` | `public/assets/generated/zombies/zombie-boss-plague-v2.png` | 疫医缝合王 |
 | `art_zombie_boss_void_v2` | `public/assets/generated/zombies/zombie-boss-void-v2.png` | 虚空典狱长 |
+| `art_zombie_boss_monarch_v1` | `public/assets/generated/zombies/zombie-boss-monarch-v1.png` | 钢铁君主 |
+| `art_zombie_boss_solar_v1` | `public/assets/generated/zombies/zombie-boss-solar-v1.png` | 灼阳暴君 |
+| `art_zombie_boss_abyss_v1` | `public/assets/generated/zombies/zombie-boss-abyss-v1.png` | 渊狱霸主 |
+| `art_zombie_boss_blight_v1` | `public/assets/generated/zombies/zombie-boss-blight-v1.png` | 腐化大帝 |
+| `art_zombie_boss_radiant_v1` | `public/assets/generated/zombies/zombie-boss-radiant-v1.png` | 辉光至尊 |
+| `art_zombie_boss_omega_v1` | `public/assets/generated/zombies/zombie-boss-omega-v1.png` | 终焉核心 |
 
-钢铁君主、灼阳暴君、渊狱霸主、腐化大帝、辉光至尊、终焉核心没有独立位图，按设计使用 `zombie_boss_*` 程序纹理。`Zombie` 会优先使用 `artTexture`，不存在时回退到 `texture`。
+`Zombie` 会优先使用 `artTexture`，不存在时回退到 `texture`；程序光环、王冠和二阶段特效仍由 Phaser 负责。
 
-### 终极技能：4 张
+### 终极技能：6 张
 
 | 纹理键 | 文件 |
 | --- | --- |
@@ -41,23 +45,25 @@
 | `art_ultimate_infinite_barrage_v1` | `public/assets/generated/skills/ultimate-infinite-barrage-v1.png` |
 | `art_ultimate_orbital_command_v1` | `public/assets/generated/skills/ultimate-orbital-command-v1.png` |
 | `art_ultimate_eternal_fortress_v1` | `public/assets/generated/skills/ultimate-eternal-fortress-v1.png` |
+| `art_ultimate_apocalypse_array_v1` | `public/assets/generated/skills/ultimate-apocalypse-array-v1.png` |
+| `art_ultimate_iron_dynasty_v1` | `public/assets/generated/skills/ultimate-iron-dynasty-v1.png` |
 
 另外两个终极节点分别使用 `icon_ultimate_apocalypse` 和 `icon_ultimate_dynasty`，由 `BootScene` 生成。
 
 ## 三、缺口审计结论
 
-v1.1.0 的所有资源引用均有加载项或程序纹理，当前**没有会造成空白、404 或 Android 离线缺图的必需 ImageGen 素材**。
+v1.1.1 的所有资源引用均有加载项或程序纹理，当前**没有会造成空白、404 或 Android 离线缺图的必需 ImageGen 素材**。
 
-- 6 张 Boss 位图、4 张终极技能位图已在 `BootScene.preload()` 注册。
-- 后续 Boss 的 `artTexture` 留空是明确的程序绘制策略。
-- 两个新终极图标已由 `makeSkillIcons()` 生成，不是占位键或缺失文件。
+- 12 张 Boss 位图、6 张终极技能位图已在 `BootScene.preload()` 注册。
+- 所有 Boss 的 `artTexture` 都指向版本化 PNG，并保留程序纹理作为安全回退。
+- 湮灭阵列和钢铁王朝已从程序图标升级为正式透明图标。
 - `npm run android:sync` 会把 `public/assets/generated/` 同步进 APK；只执行 Gradle 不会自动刷新这些 Web 资源。
 
 未来只有在以下条件同时满足时，才将程序素材升级为正式位图：该对象是高频视觉锚点；现有程序轮廓无法在目标尺寸表达机制；增加资源不会破坏内存、包体和风格预算；Web 与 Android 都能离线打包并验证。
 
 ## 四、ImageGen 生产规则
 
-已交付的五张元素 Boss v2 使用 `gpt-image-2` 高质量方图生成，完整参数保存在 `generated-art-prompts-v2.jsonl`。生成时使用纯色键背景，一般角色使用 `#00ff00`，绿色疫医使用 `#ff00ff`，再用技能内置 `remove_chroma_key.py` 去背并以 Lanczos 缩放到最长边 512 px。
+已交付的五张元素 Boss v2 与 v1.1 批次的六张 Boss、两张终极技能图均使用 `gpt-image-2` 高质量方图生成，完整参数分别保存在 `generated-art-prompts-v2.jsonl` 与 `generated-art-prompts-v1.1.jsonl`。生成时使用纯色键背景，一般角色使用 `#00ff00`，绿色疫医与钢铁王朝图标使用 `#ff00ff`，再用技能内置 `remove_chroma_key.py` 去背并以 Lanczos 缩放。
 
 新生产任务必须保留：
 
