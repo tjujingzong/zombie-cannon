@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://tjujingzong.github.io/zombie-cannon/">在线游玩</a> ·
   <a href="https://github.com/tjujingzong/zombie-cannon/releases/download/android-latest/zombie-cannon-android.apk">Android 最新体验版</a> ·
-  <a href="https://github.com/tjujingzong/zombie-cannon/releases/tag/v1.0.0">Android 1.0 稳定版</a> ·
+  <a href="https://github.com/tjujingzong/zombie-cannon/releases/download/v1.1.1/zombie-cannon-v1.1.1.apk">Android v1.1.1 稳定版</a> ·
   <a href="https://github.com/tjujingzong/zombie-cannon/releases">全部 Releases</a>
 </p>
 
@@ -62,7 +62,7 @@
 | 渠道 | 用途 | 更新方式 |
 | --- | --- | --- |
 | [最新体验版](https://github.com/tjujingzong/zombie-cannon/releases/download/android-latest/zombie-cannon-android.apk) | 跟随 `main`，包含最新玩法与修复 | 每次推送 `main` 后由 Actions 覆盖发布 |
-| [v1.0.0 稳定版](https://github.com/tjujingzong/zombie-cannon/releases/download/v1.0.0/zombie-cannon-v1.0.0.apk) | 固定版本，便于回退与复现 | 不再覆盖 |
+| [v1.1.1 稳定版](https://github.com/tjujingzong/zombie-cannon/releases/download/v1.1.1/zombie-cannon-v1.1.1.apk) | 固定版本，便于回退与复现 | 不再覆盖 |
 
 体验包从 `v1.1.0` 起使用递增的 Android `versionCode`，当前应用版本为 `1.1.1`。仓库配置完整发布签名 Secret 时，`main` 与 `v*` 标签都会使用同一 release keystore，可直接覆盖升级；缺少 Secret 时 CI 会回退到 debug 证书。若 Android 提示签名不一致，请先导出存档，再卸载旧包后安装新包。
 
