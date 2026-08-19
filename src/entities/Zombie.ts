@@ -60,6 +60,13 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
   private usesGeneratedArt = false;
   private visualScale = 1;
   private hudScale = 1;
+  /** 战号精英光环提供的加速倍率 */
+  private hasteMultiplier = 1;
+  private hasteTimer = 0;
+  /** 适应词缀：对反复命中的元素逐渐产生抗性 */
+  private adaptiveResist: Partial<Record<DamageElement, number>> = {};
+  /** 弱点标记剩余时间 */
+  private markTimer = 0;
 
   private hpBar!: Phaser.GameObjects.Graphics;
   private shieldBar!: Phaser.GameObjects.Graphics;
@@ -137,6 +144,10 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     this.lastDamageTaken = 0;
     this.lastDamageMultiplier = 1;
     this.bossPhase = 1;
+    this.hasteMultiplier = 1;
+    this.hasteTimer = 0;
+    this.adaptiveResist = {};
+    this.markTimer = 0;
 
     this.enableBody(true, x, y, true, true);
     const generatedTexture = this.archetype === 'boss' ? stats.artTexture : null;
@@ -250,6 +261,12 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
       return false;
     }
     dmg *= elementMultiplier;
+    // 适应词缀：对同一元素的反复打击逐渐产生抗性
+    if (this.eliteAffix === 'adaptive') {
+      const current = this.adaptiveResist[element] ?? 0;
+      dmg *= 1 - current;
+      this.adaptiveResist[element] = Math.min(0.45, current + 0.05);
+    }
     dmg *= 1 - Phaser.Math.Clamp(this.damageReduction + this.eliteDamageReduction, 0, 0.78);
     this.lastDamageTaken = Math.min(this.hp + this.shield, Math.max(0, dmg));
     if (this.eliteAffix === 'regenerating') this.regenerationCooldown = 3;
@@ -274,10 +291,46 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
       const body = this.body as Phaser.Physics.Arcade.Body;
       if (body.velocity.y > 0) body.setVelocityY(this.baseSpeed * this.slowMultiplier);
       this.onBossPhase?.(this, 2);
+    } else if (this.isBoss && this.bossPhase === 2 && this.hp > 0 && this.hp / this.maxHp <= 0.22) {
+      // 三阶段：濒死狂暴，速度与攻击节奏全面提升
+      this.bossPhase = 3;
+      this.baseSpeed *= 1.28;
+      const body = this.body as Phaser.Physics.Arcade.Body;
+      if (body.velocity.y > 0) body.setVelocityY(this.baseSpeed * this.slowMultiplier);
+      this.onBossPhase?.(this, 3);
     }
     this.flashHit();
     this.drawHpBar();
     return this.hp <= 0;
+  }
+
+  /** 战号光环：短时间内提高移动速度 */
+  applyHaste(multiplier: number, duration: number): void {
+    if (!this.active || this.hp <= 0 || this.isBoss) return;
+    const next = Math.max(this.hasteMultiplier, multiplier);
+    if (next > this.hasteMultiplier) {
+      const body = this.body as Phaser.Physics.Arcade.Body;
+      if (body.velocity.y > 0) body.setVelocityY(body.velocity.y * (next / this.hasteMultiplier));
+    }
+    this.hasteMultiplier = next;
+    this.hasteTimer = Math.max(this.hasteTimer, duration);
+  }
+
+  /** 弱点标记：一段时间内承受更高伤害 */
+  applyWeaknessMark(duration: number): void {
+    this.markTimer = Math.max(this.markTimer, duration);
+  }
+
+  get marked(): boolean {
+    return this.markTimer > 0;
+  }
+
+  /** 庇护词缀：为自身补充能量盾 */
+  grantShield(amount: number): void {
+    if (!this.active || this.hp <= 0) return;
+    if (this.shield <= 0) this.shieldBar.setVisible(true).setDepth(6);
+    this.shield = Math.min(SHIELD_MAX, this.shield + amount);
+    this.drawShieldBar();
   }
 
   applySlow(multiplier: number, duration: number): void {
@@ -378,6 +431,10 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     this.lastDamageTaken = 0;
     this.lastDamageMultiplier = 1;
     this.bossPhase = 1;
+    this.hasteMultiplier = 1;
+    this.hasteTimer = 0;
+    this.adaptiveResist = {};
+    this.markTimer = 0;
     this.usesGeneratedArt = false;
     this.visualScale = 1;
     this.hudScale = 1;
@@ -452,6 +509,17 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
         this.hp = Math.min(this.maxHp, this.hp + this.maxHp * 0.035 * dt);
       }
     }
+
+    // 战号加速与弱点标记计时
+    if (this.hasteTimer > 0) {
+      this.hasteTimer -= dt;
+      if (this.hasteTimer <= 0 && this.hasteMultiplier > 1) {
+        const body = this.body as Phaser.Physics.Arcade.Body;
+        if (body.velocity.y > 0) body.setVelocityY(body.velocity.y / this.hasteMultiplier);
+        this.hasteMultiplier = 1;
+      }
+    }
+    if (this.markTimer > 0) this.markTimer -= dt;
 
     if (this.isBurrowed && this.hp > 0) {
       this.burrowTimer -= dt;
@@ -551,17 +619,18 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     // ── Boss 召唤 ──
     if (this.isBoss && this.hp > 0) {
       this.summonTimer += dt;
-      const summonInterval = BOSS_SUMMON_INTERVAL * (this.bossPhase === 2 ? 0.48 : 1);
+      const phasePace = this.bossPhase === 3 ? 0.32 : this.bossPhase === 2 ? 0.48 : 1;
+      const summonInterval = BOSS_SUMMON_INTERVAL * phasePace;
       if (this.summonTimer >= summonInterval) {
         this.summonTimer = 0;
-        this.onSummon(this.x, this.y + this.displayHeight / 2 + 20, this.bossPhase === 2 ? 'fast' : undefined);
+        this.onSummon(this.x, this.y + this.displayHeight / 2 + 20, this.bossPhase >= 2 ? 'fast' : undefined);
       }
-      if (this.bossPhase === 2) {
+      if (this.bossPhase >= 2) {
         this.spitTimer += dt;
-        if (this.spitTimer >= 2.4) {
+        if (this.spitTimer >= (this.bossPhase === 3 ? 1.8 : 2.4)) {
           this.spitTimer = 0;
           const angle = Phaser.Math.Angle.Between(this.x, this.y, this.x, WALL_Y);
-          this.onSpit(this.x, this.y, angle, this.wallDamage * 0.55);
+          this.onSpit(this.x, this.y, angle, this.wallDamage * (this.bossPhase === 3 ? 0.7 : 0.55));
         }
       }
     }

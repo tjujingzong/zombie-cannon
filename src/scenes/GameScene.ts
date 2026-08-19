@@ -5,10 +5,13 @@ import {
   KILL_STREAK_THRESHOLDS,
   PRE_GAME_FREE_SKILLS, PRE_GAME_MONSTER_MULTIPLIER,
   CONDUCTOR_AURA_RANGE, CONDUCTOR_DAMAGE_REDUCTION,
+  SHIELD_MAX,
   ZOMBIE_TYPES,
   type DamageElement,
 } from '../data/balance';
-import { LEVELS, LevelConfig, getLevel } from '../data/levels';
+import {
+  LEVELS, LevelConfig, getLevel, getLevelModifier, type LevelModifierDef,
+} from '../data/levels';
 import { AudioSystem } from '../systems/AudioSystem';
 import { SkillSystem } from '../systems/SkillSystem';
 import { MetaUpgrades } from '../systems/MetaUpgrades';
@@ -19,7 +22,7 @@ import { Cannon } from '../entities/Cannon';
 import { Coin } from '../entities/Coin';
 import { Zombie } from '../entities/Zombie';
 import { FONT, createButton, createOverlay, textStyle } from '../ui/helpers';
-import { RARITY_HEX, getSkill, type SynergyDef } from '../data/skills';
+import { RARITY_HEX, SKILLS, getSkill, type SynergyDef } from '../data/skills';
 import type { RollChoice } from '../systems/SkillSystem';
 import {
   BUILD_PATHS,
@@ -161,6 +164,15 @@ export class GameScene extends Phaser.Scene {
   private companionDrone?: Phaser.GameObjects.Image;
   private challengeContract!: ChallengeContractKey;
   private challengeContractDef!: ChallengeContractDef;
+  /** 深渊词缀（关卡携带的全局修正） */
+  private levelModifier!: LevelModifierDef;
+  /** 保险协议是否已触发 */
+  private insuranceUsed = false;
+  /** 各类周期计时器 */
+  private staticFieldTimer = 0;
+  private eliteAuraTimer = 0;
+  private supplyContractTimer = 0;
+  private idleRepairAccumulator = 0;
 
   // 供 UIScene 读取的公开状态
   runCoins = 0;
@@ -266,6 +278,12 @@ export class GameScene extends Phaser.Scene {
     this.challengeContractDef = getChallengeContract(this.challengeContract);
     this.challengeContractStatus = this.challengeContractDef.key === 'none'
       ? '' : `挑战契约 · ${this.challengeContractDef.name}`;
+    this.levelModifier = getLevelModifier(this.level);
+    this.insuranceUsed = false;
+    this.staticFieldTimer = 0;
+    this.eliteAuraTimer = 0;
+    this.supplyContractTimer = 0;
+    this.idleRepairAccumulator = 0;
     this.behaviorTelemetry = {
       volleys: 0,
       cryoBursts: 0,
@@ -285,7 +303,7 @@ export class GameScene extends Phaser.Scene {
     this.choosingUpgrade = false;
     this.finished = false;
     this.transitioning = false;
-    this.preGamePicksLeft = PRE_GAME_FREE_SKILLS;
+    this.preGamePicksLeft = MetaUpgrades.preGamePicks();
     this.missileTimer = 0;
     this.airSupportTimer = 0;
     this.armorySupportTimer = 0;
@@ -362,8 +380,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.levelName = this.isEndlessMode ? '末日无尽' : this.level.name;
-    this.wallMaxHp = Math.max(1, Math.round(MetaUpgrades.wallMaxHp() * this.challengeContractDef.wallHpMultiplier));
+    const modifierLabel = this.level.modifier ? ` · ${this.levelModifier.shortLabel}` : '';
+    this.levelName = this.isEndlessMode ? '末日无尽' : `${this.level.name}${modifierLabel}`;
+    this.wallMaxHp = Math.max(1, Math.round(
+      MetaUpgrades.wallMaxHp()
+        * this.challengeContractDef.wallHpMultiplier
+        * this.levelModifier.wallHpMultiplier,
+    ));
     this.wallHp = this.wallMaxHp;
     this.wallShield = MetaUpgrades.initialShield();
 
@@ -371,13 +394,19 @@ export class GameScene extends Phaser.Scene {
 
     // 技能系统
     this.skills = new SkillSystem(this.skillRandom);
+    this.skills.setLevelRerollDiscount(this.levelModifier.rerollDiscount);
     this.overdriveCharge = Math.min(
       100,
       MetaUpgrades.initialOverdrive()
         + (this.dailyChallenge?.modifier.initialOverdrive ?? 0)
+        + this.levelModifier.initialOverdrive
         + (this.endlessRun ? 20 : 0),
     );
     this.overdriveReady = this.overdriveCharge >= 100;
+    // 启动资金（局外养成）
+    this.runCoins = MetaUpgrades.startingFund();
+    // 老兵增援：开局随机获得技能
+    this.applyVeteranStartSkills();
     this.skills.onRepair = (ratio) => {
       this.wallHp = Math.min(this.wallMaxHp, this.wallHp + Math.round(this.wallMaxHp * ratio));
       AudioSystem.play('heal');
@@ -397,6 +426,14 @@ export class GameScene extends Phaser.Scene {
       if (KILL_STREAK_THRESHOLDS.includes(streak)) {
         this.showKillStreakBanner(streak);
         AudioSystem.play('kill_streak');
+        // 连杀盛宴：达到阈值获得金币与过载
+        const feast = this.skills.streakFeastLevel;
+        if (feast > 0) {
+          const coins = 10 * feast + streak;
+          this.runCoins += coins;
+          this.grantOverdriveCharge(4 * feast);
+          this.showEventRewardFeedback(`连杀盛宴 · +${coins} 金 · 过载 +${4 * feast}`, 0xffd54a);
+        }
       }
     };
 
@@ -1266,6 +1303,16 @@ export class GameScene extends Phaser.Scene {
     this.waveLabel = `${this.waveManager.currentWave}/${waveTotalLabel}`;
     this.isHordeActive = this.waveManager.isHordeWave;
 
+    // 每波重置免费重铸；晨间加固补盾；军需官补给金币
+    this.skills.resetWaveReroll();
+    if (this.skills.dawnShieldAmount > 0) {
+      this.wallShield = Math.min(this.wallMaxHp * 0.6, this.wallShield + this.skills.dawnShieldAmount);
+      this.showShieldActivateEffect();
+    }
+    if (this.skills.quartermasterWaveCoins > 0) {
+      this.runCoins += this.skills.quartermasterWaveCoins;
+    }
+
     // 检测当前波是否为 bossWave
     const isBossWave = this.waveManager.isBossWave;
     this.isBossWave = isBossWave;
@@ -1555,11 +1602,11 @@ export class GameScene extends Phaser.Scene {
       type,
       sx,
       sy,
-      this.level.hpScale * endlessHp,
-      this.level.speedScale * contractSpeed * this.eventEnemySpeedMultiplier * dailySpeed * endlessSpeed,
+      this.level.hpScale * endlessHp * this.levelModifier.enemyHpMultiplier,
+      this.level.speedScale * contractSpeed * this.eventEnemySpeedMultiplier * dailySpeed * endlessSpeed * this.levelModifier.enemySpeedMultiplier,
       rolledAffix,
     );
-    z.onAttackWall = (dmg) => this.damageWall(dmg);
+    z.onAttackWall = (dmg) => this.damageWall(dmg, z);
     z.onSummon = (bx, by, summonType) => {
       this.spawnZombie(summonType ?? 'normal',
         Phaser.Math.Clamp(bx + randomBetween(this.spawnRandom, -80, 80), 60, GAME_WIDTH - 60), by, null);
@@ -1578,7 +1625,7 @@ export class GameScene extends Phaser.Scene {
       this.showShockwave(burrower.x, burrower.y);
       AudioSystem.play('wall_hit', { volume: 0.35 });
     };
-    z.onBossPhase = (boss) => this.showBossPhaseChange(boss);
+    z.onBossPhase = (boss, phase) => this.showBossPhaseChange(boss, phase);
 
     // Boss 出生特效
     if (z.isBoss) {
@@ -1596,7 +1643,10 @@ export class GameScene extends Phaser.Scene {
   private rollEliteAffix(type: ZombieTypeKey): EliteAffix | null {
     const archetype = ZOMBIE_TYPES[type].archetype;
     if (archetype === 'swarm' || archetype === 'boss') return null;
-    const affixes: EliteAffix[] = ['swift', 'armored', 'regenerating', 'splitting'];
+    const affixes: EliteAffix[] = [
+      'swift', 'armored', 'regenerating', 'splitting',
+      'volatile', 'warden', 'warhorn', 'adaptive',
+    ];
     const activeEvent = this.battlefieldEvents.active;
     if (
       activeEvent?.def.key === 'eliteHunt'
@@ -1614,29 +1664,46 @@ export class GameScene extends Phaser.Scene {
     const eventBonus = activeEvent?.def.key === 'infectionStorm' && this.eventGameplayStarted ? 0.12 : 0;
     const dailyBonus = this.dailyChallenge?.modifier.eliteChanceBonus ?? 0;
     const endlessBonus = this.endlessRun?.eliteChanceBonus ?? 0;
-    if (this.eliteRandom() >= baseChance + contractBonus + eventBonus + dailyBonus + endlessBonus) return null;
+    const radarBonus = MetaUpgrades.eliteChanceBonus();
+    if (this.eliteRandom() >= baseChance + contractBonus + eventBonus + dailyBonus + endlessBonus + radarBonus) return null;
     return affixes[randomBetween(this.eliteRandom, 0, affixes.length - 1)];
   }
 
-  private showBossPhaseChange(boss: Zombie): void {
-    this.cameras.main.flash(260, 255, 45, 45, false);
-    this.cameras.main.shake(520, 0.018);
+  private showBossPhaseChange(boss: Zombie, phase: number): void {
+    const finalPhase = phase >= 3;
+    this.cameras.main.flash(260, 255, finalPhase ? 120 : 45, finalPhase ? 40 : 45, false);
+    this.cameras.main.shake(finalPhase ? 700 : 520, finalPhase ? 0.026 : 0.018);
     this.applySlowMo(0.5, 0.42);
-    const phase = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT * 0.235, '首领狂暴 · 二阶段', {
-      fontFamily: FONT, fontSize: '46px', fontStyle: 'bold', color: '#ff5252',
+    const label = finalPhase ? '首领濒死 · 终末狂暴' : '首领狂暴 · 二阶段';
+    const phaseText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT * 0.235, label, {
+      fontFamily: FONT, fontSize: '46px', fontStyle: 'bold', color: finalPhase ? '#ff1744' : '#ff5252',
       stroke: '#2b0b0b', strokeThickness: 10,
     }).setOrigin(0.5).setDepth(24).setScale(0.4).setAlpha(0);
     this.tweens.add({
-      targets: phase, scale: 1, alpha: 1, duration: 240, yoyo: true, hold: 850,
-      onComplete: () => phase.destroy(),
+      targets: phaseText, scale: 1, alpha: 1, duration: 240, yoyo: true, hold: 850,
+      onComplete: () => phaseText.destroy(),
     });
-    for (let i = 0; i < 6; i++) {
-      this.spawnZombie(
-        'fast',
-        Phaser.Math.Clamp(boss.x + randomBetween(this.spawnRandom, -170, 170), 54, GAME_WIDTH - 54),
-        boss.y + randomBetween(this.spawnRandom, 70, 150),
-        null,
-      );
+    if (finalPhase) {
+      // 终末狂暴：召来带词缀的精锐护航
+      const escortTypes: ZombieTypeKey[] = ['berserker', 'shield', 'leaper'];
+      for (let i = 0; i < 3; i++) {
+        this.spawnZombie(
+          escortTypes[i % escortTypes.length],
+          Phaser.Math.Clamp(boss.x + randomBetween(this.spawnRandom, -200, 200), 54, GAME_WIDTH - 54),
+          boss.y + randomBetween(this.spawnRandom, 60, 150),
+          undefined,
+        );
+      }
+      this.grantOverdriveCharge(10);
+    } else {
+      for (let i = 0; i < 6; i++) {
+        this.spawnZombie(
+          'fast',
+          Phaser.Math.Clamp(boss.x + randomBetween(this.spawnRandom, -170, 170), 54, GAME_WIDTH - 54),
+          boss.y + randomBetween(this.spawnRandom, 70, 150),
+          null,
+        );
+      }
     }
     AudioSystem.play('boss', { volume: 1 });
   }
@@ -1661,9 +1728,10 @@ export class GameScene extends Phaser.Scene {
     const b = this.bullets.get() as Bullet | null;
     if (!b) return;
     const isCrit = Math.random() < this.skills.critChance;
-    const rawDmg = this.skills.damage * (1 + this.skills.streakDamageBonus) * (isCrit ? 2 : 1);
-    const comboMult = 1 + Math.min(this.hitCombo * 0.02, 1.0); // 连击倍率最高×2
-    let dmg = rawDmg * comboMult * damageMultiplier * this.challengeContractDef.cannonDamageMultiplier;
+    const rawDmg = this.skills.damage * (1 + this.skills.streakDamageBonus) * (isCrit ? this.skills.critDamageMultiplier : 1);
+    const comboMult = 1 + Math.min(this.hitCombo * this.skills.comboDamagePerStack, 1.0); // 连击倍率
+    let dmg = rawDmg * comboMult * damageMultiplier * this.challengeContractDef.cannonDamageMultiplier
+      * this.levelModifier.cannonDamageMultiplier;
     let pierce = this.skills.pierce;
     const profile: BulletProfile = {};
 
@@ -1814,6 +1882,16 @@ export class GameScene extends Phaser.Scene {
         Phaser.Math.Distance.Between(well.x, well.y, zombie.x, zombie.y) <= this.skills.gravityWellRadius);
       if (insideWell) adjusted *= 1.35;
     }
+    // 共振增幅 + 弱点标记：命中弱点时增伤并标记目标
+    const isWeaknessHit = zombie.getElementMultiplier(element) > 1;
+    if (isWeaknessHit) {
+      adjusted *= 1 + this.skills.resonanceBonus;
+      if (this.skills.weaknessMarkBonus > 0) zombie.applyWeaknessMark(3.5);
+    }
+    if (zombie.marked) {
+      adjusted *= 1 + this.skills.weaknessMarkBonus
+        + ((zombie.isBoss || zombie.eliteAffix) ? this.skills.markAndHuntBonus : 0);
+    }
     return zombie.takeDamage(adjusted, element, this.skills.weaknessBonus);
   }
 
@@ -1830,12 +1908,22 @@ export class GameScene extends Phaser.Scene {
     if (bullet.damageSource === 'bullet' && actualDmg > 0) this.chargeCompanion('hit');
 
     if (this.skills.frostSlowMultiplier < 1 && zombie.hp > 0) {
-      zombie.applySlow(this.skills.frostSlowMultiplier, 2.5);
+      zombie.applySlow(this.skills.frostSlowMultiplier, 2.5 * MetaUpgrades.slowDurationMultiplier());
     }
     if (bullet.cryoBurst && !bullet.cryoTriggered) {
       this.triggerEquipmentCryo(bullet, zombie);
     }
     if (!died && bullet.knockback > 0) zombie.applyKnockback(bullet.knockback);
+    // 重锤冲击：主炮击退非首领单位（震荡教条附加震荡伤害）
+    if (!died && zombie.hp > 0 && !zombie.isBoss && this.skills.heavyImpactChance > 0
+      && Math.random() < this.skills.heavyImpactChance) {
+      zombie.applyKnockback(30);
+      if (this.skills.hasSynergy('shockDoctrine')) {
+        const shockDied = this.dealDamage(zombie, bullet.damage * 0.3, 'explosive', true);
+        this.recordDamage('bullet', zombie);
+        if (shockDied) this.killZombie(zombie);
+      }
+    }
     if (bullet.volatileCore && !bullet.volatileTriggered) {
       bullet.volatileTriggered = true;
       this.behaviorTelemetry.volatileBursts++;
@@ -1867,7 +1955,7 @@ export class GameScene extends Phaser.Scene {
 
     // 灼烧效果
     if (this.skills.burnDps > 0 && zombie.hp > 0) {
-      this.applyBurn(zombie, this.skills.burnDps);
+      this.applyBurn(zombie, this.skills.burnDps * MetaUpgrades.burnMultiplier());
     }
     if (this.behaviorLoadout.ammo === 'ammo_incendiary' && zombie.hp > 0) {
       this.applyBurn(zombie, this.skills.damage * 0.18);
@@ -1877,10 +1965,18 @@ export class GameScene extends Phaser.Scene {
     }
     if (!died && zombie.hp > 0 && this.skills.stormCoilChance > 0
       && Math.random() < this.skills.stormCoilChance) {
-      this.doChainLightning(zombie, 2 + this.skills.getLevel('stormCoil'));
+      this.doChainLightning(zombie, 2 + this.skills.getLevel('stormCoil') + this.skills.arcBounceBonus);
     }
     if (!died && zombie.hp > 0 && this.skills.hasSynergy('thermalShock')) {
       this.triggerThermalShock(zombie);
+    }
+
+    // 暴击起爆：暴击命中触发小型范围爆炸
+    if (bullet.isCrit && this.skills.criticalDetonationMultiplier > 0) {
+      this.doEquipmentExplosion(
+        zombie.x, zombie.y,
+        bullet.damage * this.skills.criticalDetonationMultiplier, 95, zombie,
+      );
     }
 
     // 穿甲组合技：地狱穿甲弹
@@ -2009,11 +2105,11 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private doChainLightning(source: Zombie, maxTargets = 4): void {
+  private doChainLightning(source: Zombie, maxTargets = 4 + this.skills.arcBounceBonus): void {
     const targets = this.aliveZombies()
       .filter((z) => z !== source && z.hp > 0)
       .sort((a, b) => Phaser.Math.Distance.Between(source.x, source.y, a.x, a.y)
-        - Phaser.Math.Distance.Between(source.x, source.y, b.x, b.y))
+        - Phaser.Math.Distance.Between(source.x, source.y, b.x, b.x))
       .slice(0, maxTargets);
     let fromX = source.x;
     let fromY = source.y;
@@ -2022,7 +2118,7 @@ export class GameScene extends Phaser.Scene {
       this.lightningGraphics.lineBetween(fromX, fromY, target.x, target.y);
       this.lightningGraphics.lineStyle(12, 0xffd54f, 0.18);
       this.lightningGraphics.lineBetween(fromX, fromY, target.x, target.y);
-      const died = this.dealDamage(target, this.skills.damage * 0.7, 'lightning');
+      const died = this.dealDamage(target, this.skills.damage * 0.7 * this.skills.arcDamageMultiplier, 'lightning');
       this.recordDamage('lightning', target);
       if (died) this.killZombie(target);
       fromX = target.x;
@@ -2083,7 +2179,7 @@ export class GameScene extends Phaser.Scene {
         this.cannon.x + Phaser.Math.Between(-20, 20),
         this.cannon.y - 20,
         angle,
-        this.skills.damage * 1.5,
+        this.skills.damage * 1.5 * MetaUpgrades.missileDamageMultiplier(),
         0,
         false,
         0,
@@ -2120,7 +2216,7 @@ export class GameScene extends Phaser.Scene {
       const startY = WALL_Y + 78;
       const angle = Phaser.Math.Angle.Between(startX, startY, target.x, target.y);
       missile.setTexture('bullet');
-      missile.fire(startX, startY, angle, this.skills.damage * 1.05, 0, false, 0, {
+      missile.fire(startX, startY, angle, this.skills.damage * 1.05 * MetaUpgrades.missileDamageMultiplier(), 0, false, 0, {
         damageSource: 'airSupport', element: 'energy',
       });
       missile.setScale(1.2).setTint(0x4de7ff);
@@ -2205,6 +2301,7 @@ export class GameScene extends Phaser.Scene {
     if (this.battlefieldEvents.active?.def.key === 'infectionStorm' && this.eventGameplayStarted) {
       gain += zombie.isBehavior('swarm') ? 1 : 2;
     }
+    gain += MetaUpgrades.flatKillOverdrive();
     this.grantOverdriveCharge(gain * this.skills.overdriveGainMultiplier);
   }
 
@@ -2252,12 +2349,78 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /** 新机制周期行为：静电领域 / 精英光环 / 补给契约 / 空窗修复 */
+  private updateNewMechanics(dt: number, alive: Zombie[]): void {
+    // 静电领域：近墙敌人持续减速
+    if (this.skills.staticFieldSlow > 0) {
+      this.staticFieldTimer += dt;
+      if (this.staticFieldTimer >= 0.3) {
+        this.staticFieldTimer = 0;
+        const range = this.skills.staticFieldRange;
+        const slow = 1 - this.skills.staticFieldSlow;
+        for (const zombie of alive) {
+          if (WALL_Y - zombie.y < range) zombie.applySlow(slow, 0.5);
+        }
+      }
+    }
+
+    // 精英光环：战号加速、庇护补盾
+    if (alive.length > 1) {
+      this.eliteAuraTimer += dt;
+      if (this.eliteAuraTimer >= 0.45) {
+        this.eliteAuraTimer = 0;
+        for (const elite of alive) {
+          if (elite.eliteAffix === 'warhorn') {
+            for (const ally of alive) {
+              if (ally !== elite && Phaser.Math.Distance.Between(elite.x, elite.y, ally.x, ally.y) < 190) {
+                ally.applyHaste(1.35, 0.9);
+              }
+            }
+          } else if (elite.eliteAffix === 'warden') {
+            let granted = 0;
+            for (const ally of alive) {
+              if (granted >= 4) break;
+              if (ally !== elite && ally.shield < SHIELD_MAX
+                && Phaser.Math.Distance.Between(elite.x, elite.y, ally.x, ally.y) < 170) {
+                ally.grantShield(16);
+                granted++;
+              }
+            }
+            if (granted > 0) this.showHealEffect(elite.x, elite.y);
+          }
+        }
+      }
+    }
+
+    // 补给契约：被动金币
+    if (this.skills.supplyContractCoins > 0) {
+      this.supplyContractTimer += dt;
+      if (this.supplyContractTimer >= 5) {
+        this.supplyContractTimer = 0;
+        this.runCoins += this.skills.supplyContractCoins;
+      }
+    }
+
+    // 空窗修复：自动焊机（技能）+ 战地抢修（养成）
+    const idleRate = this.skills.autoWelderRate + MetaUpgrades.idleRepairRate();
+    if (idleRate > 0 && alive.length === 0 && this.wallHp > 0 && this.wallHp < this.wallMaxHp) {
+      this.idleRepairAccumulator += this.wallMaxHp * idleRate * dt * this.skills.repairBonus;
+      if (this.idleRepairAccumulator >= 1) {
+        const amount = Math.floor(this.idleRepairAccumulator);
+        this.idleRepairAccumulator -= amount;
+        this.wallHp = Math.min(this.wallMaxHp, this.wallHp + amount);
+      }
+    } else if (this.idleRepairAccumulator > 0) {
+      this.idleRepairAccumulator = 0;
+    }
+  }
+
   /** 由 HUD 按钮调用的主动爆发技能 */
   triggerOverdrive(): boolean {
     if (!this.overdriveReady || this.skills.isOverdriveActive || this.finished || this.choosingUpgrade) return false;
     this.overdriveCharge = 0;
     this.overdriveReady = false;
-    this.overdriveTimer = 8;
+    this.overdriveTimer = MetaUpgrades.overdriveDuration();
     this.skills.setOverdrive(true);
     this.runOverdriveUses++;
     this.cameras.main.flash(180, 182, 255, 106);
@@ -2391,7 +2554,7 @@ export class GameScene extends Phaser.Scene {
 
   // ─── 墙壁伤害 ───
 
-  private damageWall(dmg: number): void {
+  private damageWall(dmg: number, attacker?: Zombie | null): void {
     if (this.finished) return;
 
     // 铜墙铁壁无敌
@@ -2399,6 +2562,12 @@ export class GameScene extends Phaser.Scene {
 
     dmg *= this.challengeContractDef.wallDamageMultiplier;
     if (this.behaviorLoadout.wall === 'wall_barrier') dmg *= 0.88;
+    // 玻璃大炮：输出更高但墙体更脆
+    dmg *= 1 + this.skills.glassCannonWallPenalty;
+    // 防爆闸门：单次受击伤害封顶
+    dmg = Math.min(dmg, this.skills.blastDoorCap);
+    // 应急隔舱：墙体濒危时额外减伤
+    dmg *= 1 - this.skills.bulkheadReduction;
     this.triggerBehaviorWallModule(dmg);
 
     // 护盾吸收
@@ -2407,6 +2576,7 @@ export class GameScene extends Phaser.Scene {
         this.wallShield -= dmg;
         this.cameras.main.shake(60, 0.002);
         AudioSystem.play('wall_hit', { volume: 0.3 });
+        this.counterAttack(attacker);
         return;
       }
       dmg -= this.wallShield;
@@ -2416,9 +2586,19 @@ export class GameScene extends Phaser.Scene {
     // 钢铁壁垒减伤
     dmg *= 1 - this.skills.wallDamageReduction;
 
+    // 外墙尖刺（局外养成）：受击即反弹
+    if (attacker && MetaUpgrades.wallSpikeRatio() > 0) {
+      const spikeDamage = dmg / Math.max(0.01, 1 - this.skills.wallDamageReduction) * MetaUpgrades.wallSpikeRatio();
+      const spikeDied = this.dealDamage(attacker, spikeDamage, 'kinetic');
+      this.recordDamage('thorns', attacker);
+      if (spikeDied) this.killZombie(attacker);
+    }
+
     this.wallHp = Math.max(0, this.wallHp - dmg);
     this.cameras.main.shake(120, 0.004);
     AudioSystem.play('wall_hit', { volume: 0.55 });
+
+    this.counterAttack(attacker);
 
     // 反伤
     if (this.skills.thornsDamage > 0) {
@@ -2445,7 +2625,27 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.wallHp <= 0) {
+      // 保险协议：首次倒下转化为紧急修复
+      if (!this.insuranceUsed && this.skills.insuranceRepairRatio > 0) {
+        this.insuranceUsed = true;
+        this.wallHp = Math.max(1, Math.round(this.wallMaxHp * this.skills.insuranceRepairRatio));
+        this.showEventRewardFeedback('保险协议生效 · 紧急修复防线', 0x80deea);
+        this.cameras.main.flash(160, 128, 222, 235, false);
+        AudioSystem.play('heal', { volume: 0.9 });
+        return;
+      }
       this.endLevel(false);
+    }
+  }
+
+  /** 反击火炮：墙体受击时概率反击攻击者 */
+  private counterAttack(attacker: Zombie | null | undefined): void {
+    if (!attacker || !attacker.active || attacker.hp <= 0) return;
+    if (this.skills.counterBatteryChance > 0 && Math.random() < this.skills.counterBatteryChance) {
+      const died = this.dealDamage(attacker, this.skills.damage, 'kinetic');
+      this.recordDamage('thorns', attacker);
+      this.showDamageText(attacker.x, attacker.y - 24, Math.round(attacker.lastDamageTaken), false);
+      if (died) this.killZombie(attacker);
     }
   }
 
@@ -2516,6 +2716,10 @@ export class GameScene extends Phaser.Scene {
     const isBoss = zombie.isBoss;
     const isSwarm = zombie.isBehavior('swarm');
     const killedElite = zombie.eliteAffix !== null;
+    const wasSlowed = zombie.slowed;
+    const wasMarked = zombie.marked;
+    const wasBurning = this.burnEffects.some((effect) => effect.zombie === zombie);
+    const wasCorroded = this.corrosionEffects.some((effect) => effect.zombie === zombie);
     if (isBoss) this.runBossKills++;
     // 击杀爆破感：共享粒子发射器，尸潮时不会为每只敌人创建新对象
     const particleCount = isBoss ? 40 : isSwarm ? 5 : 16;
@@ -2561,6 +2765,11 @@ export class GameScene extends Phaser.Scene {
     this.streakTimer = 0;
     this.addOverdriveCharge(zombie);
 
+    // 过载虹吸：精英/首领击杀额外充能
+    if ((killedElite || isBoss) && this.skills.overdriveSiphonAmount > 0) {
+      this.grantOverdriveCharge(this.skills.overdriveSiphonAmount);
+    }
+
     if (killedElite && this.battlefieldEvents.active?.def.key === 'eliteHunt' && this.eventGameplayStarted) {
       this.eventEliteKills++;
       this.runCoins += 12;
@@ -2584,20 +2793,73 @@ export class GameScene extends Phaser.Scene {
       AudioSystem.play('summon', { volume: 0.35 });
     }
 
+    // 爆燃精英：死亡时引爆，波及同伴与防线
+    if (zombie.eliteAffix === 'volatile') {
+      this.doEquipmentExplosion(zombie.x, zombie.y, Math.max(25, this.skills.damage * 0.9), 130, zombie);
+      if (WALL_Y - zombie.y < 260) this.damageWall(8);
+    }
+
+    // 火成岩流：灼烧中的尸体把火焰扩散给周围敌人
+    const pyroTargets = this.skills.pyroclastTargets;
+    if (pyroTargets > 0 && wasBurning) {
+      const burnDps = Math.max(this.skills.burnDps * MetaUpgrades.burnMultiplier(), this.skills.damage * 0.12);
+      this.aliveZombies()
+        .filter((z) => z !== zombie && Phaser.Math.Distance.Between(zombie.x, zombie.y, z.x, z.y) < 140)
+        .slice(0, pyroTargets)
+        .forEach((z) => this.applyBurn(z, burnDps));
+      this.explosionEmitter.setPosition(zombie.x, zombie.y).setParticleTint(0xff6d00).explode(8);
+    }
+
+    // 腐毒绽放：腐蚀传染给最近的敌人
+    const bloomTargets = this.skills.toxicBloomTargets;
+    if (bloomTargets > 0 && wasCorroded) {
+      const corrosionDps = Math.max(this.skills.toxicDps, this.skills.damage * 0.1);
+      this.aliveZombies()
+        .filter((z) => z !== zombie && Phaser.Math.Distance.Between(zombie.x, zombie.y, z.x, z.y) < 150)
+        .sort((a, b) => Phaser.Math.Distance.Between(zombie.x, zombie.y, a.x, a.y)
+          - Phaser.Math.Distance.Between(zombie.x, zombie.y, b.x, b.x))
+        .slice(0, bloomTargets)
+        .forEach((z) => this.applyCorrosion(z, corrosionDps));
+      this.explosionEmitter.setPosition(zombie.x, zombie.y).setParticleTint(0x9ccc65).explode(10);
+    }
+
+    // 冰碎新星：击杀被减速的敌人引发冰爆
+    if (wasSlowed && this.skills.cryoShatterMultiplier > 0) {
+      const radius = this.skills.cryoShatterRadius;
+      const damage = this.skills.damage * this.skills.cryoShatterMultiplier;
+      const ring = this.add.image(zombie.x, zombie.y, 'shockwave').setDepth(13).setScale(0.3).setTint(0x80deea);
+      this.tweens.add({
+        targets: ring, scale: radius / 48, alpha: 0, duration: 300,
+        onComplete: () => ring.destroy(),
+      });
+      for (const target of this.aliveZombies()) {
+        if (target === zombie || Phaser.Math.Distance.Between(zombie.x, zombie.y, target.x, target.y) > radius) continue;
+        target.applySlow(Math.min(this.skills.frostSlowMultiplier, 0.62), 1.6);
+        const novaDied = this.dealDamage(target, damage, 'frost', true);
+        this.recordDamage('explosion', target);
+        if (novaDied) this.killZombie(target);
+      }
+    }
+
     // 爆炸弹效果
     if (this.skills.explosiveDamage > 0) {
       this.doExplosion(zombie.x, zombie.y);
     }
 
     // 掉金币
+    const deepScanBonus = wasMarked ? 1 + this.skills.deepScanCoinBonus : 1;
+    const gloryBossBonus = isBoss ? 1 + this.skills.gloryBossCoinBonus : 1;
+    const luckyDouble = this.skills.luckyPennyChance > 0 && Math.random() < this.skills.luckyPennyChance ? 2 : 1;
     const value = Math.max(1,
       Math.round(
         zombie.coinValue
         * this.skills.coinMultiplier
         * this.challengeContractDef.coinMultiplier
-        * (killedElite || isBoss ? this.skills.eliteBountyMultiplier : 1)
+        * this.levelModifier.coinMultiplier
+        * deepScanBonus * gloryBossBonus * luckyDouble
+        * (killedElite || isBoss ? this.skills.eliteBountyMultiplier * this.levelModifier.eliteBountyMultiplier : 1)
         * (this.dailyChallenge?.modifier.key === 'eliteBounty' && killedElite ? 1.5 : 1),
-      ) + MetaUpgrades.flatCoinBonus(),
+      ) + MetaUpgrades.flatCoinBonus() + this.skills.bountyFlatCoins,
     );
     const c = this.coins.get() as Coin | null;
     if (c) {
@@ -2610,6 +2872,16 @@ export class GameScene extends Phaser.Scene {
       });
     } else {
       this.runCoins += value;
+    }
+
+    // 嗜血弹头：击杀修复墙体（血肉堡垒同步补盾）
+    if (this.skills.vampiricRepairRatio > 0 && this.wallHp > 0) {
+      const amount = Math.max(1, Math.round(this.wallMaxHp * this.skills.vampiricRepairRatio));
+      const repaired = Math.min(this.wallMaxHp - this.wallHp, Math.round(amount * this.skills.repairBonus));
+      if (repaired > 0) this.wallHp += repaired;
+      if (this.skills.hasSynergy('bloodFortress')) {
+        this.wallShield = Math.min(this.wallMaxHp * 0.5, this.wallShield + amount * 0.5);
+      }
     }
 
     // 自爆者死亡爆炸
@@ -2852,6 +3124,8 @@ export class GameScene extends Phaser.Scene {
     const alive = this.aliveZombies();
     this.enemyCount = alive.length;
     this.skills.setWallRatio(this.wallMaxHp > 0 ? this.wallHp / this.wallMaxHp : 0);
+    this.skills.setCombo(this.hitCombo);
+    this.skills.setOverdriveChargeValue(this.overdriveCharge);
     this.updatePerformanceStats(dt, alive);
     this.hordeProgress = this.waveManager.hordeProgress;
     this.updateConductorAuras(alive);
@@ -2912,6 +3186,9 @@ export class GameScene extends Phaser.Scene {
     // 灼烧
     this.updateBurns(effectiveDt);
     this.updateCorrosion(effectiveDt);
+
+    // 新机制周期行为
+    this.updateNewMechanics(effectiveDt, alive);
 
     // 护盾
     this.updateWallShield(effectiveDt);
@@ -2975,10 +3252,19 @@ export class GameScene extends Phaser.Scene {
       if (this.skills.nanoRepairRatio > 0 && this.wallHp < this.wallMaxHp) {
         const repair = Math.min(
           this.wallMaxHp - this.wallHp,
-          Math.max(1, Math.round(this.wallMaxHp * this.skills.nanoRepairRatio)),
+          Math.max(1, Math.round(this.wallMaxHp * this.skills.nanoRepairRatio * this.skills.repairBonus)),
         );
         this.wallHp += repair;
         this.showEventRewardFeedback(`纳米修复 +${repair}`, 0x69f0ae);
+      }
+      // 战争金库利息 + 战场回收员
+      let waveIncome = this.skills.battlefieldRecyclerCoins;
+      if (this.skills.warChestRate > 0 && this.runCoins > 0) {
+        waveIncome += Math.min(this.skills.warChestCap, Math.round(this.runCoins * this.skills.warChestRate));
+      }
+      if (waveIncome > 0) {
+        this.runCoins += waveIncome;
+        this.showEventRewardFeedback(`波次结算 · +${waveIncome} 金`, 0xffd54a);
       }
       if (this.waveManager.isLastWave) {
         this.applySlowMo(0.8, 0.3);
@@ -3057,6 +3343,30 @@ export class GameScene extends Phaser.Scene {
     this.redVignette.fillRect(GAME_WIDTH - 20, 0, 20, GAME_HEIGHT);
   }
 
+  // ─── 老兵增援 ───
+
+  /** 战斗开始时按「老兵增援」随机获得技能 */
+  private applyVeteranStartSkills(): void {
+    const count = this.skills.veteranStartCount;
+    if (count <= 0) return;
+    const veteranLevel = this.skills.getLevel('veteranStart');
+    const pool = SKILLS.filter((skill) => skill.key !== 'emergencyRepair'
+      && (veteranLevel >= 2 || skill.rarity === 'common' || skill.rarity === 'rare'));
+    const picks: string[] = [];
+    for (let i = 0; i < count && pool.length > 0; i++) {
+      const index = Math.floor(this.skillRandom() * pool.length);
+      picks.push(pool[index].key);
+      pool.splice(index, 1);
+    }
+    picks.forEach((key) => this.skills.apply(key));
+    if (picks.length > 0) {
+      const names = picks.map((key) => getSkill(key).name).join('、');
+      this.time.delayedCall(400, () => {
+        this.showEventRewardFeedback(`老兵增援 · ${names}`, 0xce93d8);
+      });
+    }
+  }
+
   // ─── 战前免费选技能 ───
 
   private showPreGameSkillSelection(): void {
@@ -3132,7 +3442,8 @@ export class GameScene extends Phaser.Scene {
     this.waveManager.setMonsterMultiplier(
       PRE_GAME_MONSTER_MULTIPLIER
       * (this.dailyChallenge?.modifier.enemyCountMultiplier ?? 1)
-      * this.challengeContractDef.enemyCountMultiplier,
+      * this.challengeContractDef.enemyCountMultiplier
+      * this.levelModifier.enemyCountMultiplier,
     );
     this.physics.resume();
     this.beginWave();
@@ -3270,9 +3581,9 @@ export class GameScene extends Phaser.Scene {
       pendingText?.destroy();
       cards = [];
 
-      let choices = this.skills.rollChoices(3, options.minimumRarity ?? 'common');
+      let choices = this.skills.rollChoices(this.skills.choiceCount, options.minimumRarity ?? 'common');
       if (choices.length === 0 && options.minimumRarity && options.minimumRarity !== 'common') {
-        choices = this.skills.rollChoices(3);
+        choices = this.skills.rollChoices(this.skills.choiceCount);
       }
       if (choices.length === 0) {
         this.resumeAfterChoice();
@@ -3300,9 +3611,14 @@ export class GameScene extends Phaser.Scene {
           .setOrigin(0.5).setDepth(31);
       }
 
-      const cardW = 190;
-      const gap = 20;
-      const totalW = choices.length * cardW + (choices.length - 1) * gap;
+      // 选项数量可能超过 3（战术网络），按比例压缩卡片间距与尺寸
+      const choiceCount = choices.length;
+      const gap = choiceCount >= 4 ? 12 : 20;
+      const cardW = choiceCount >= 4
+        ? Math.floor((GAME_WIDTH - 24 - gap * (choiceCount - 1)) / choiceCount)
+        : 190;
+      const cardScale = choiceCount >= 4 ? cardW / 190 : 1;
+      const totalW = choiceCount * cardW + (choiceCount - 1) * gap;
       const startX = (GAME_WIDTH - totalW) / 2 + cardW / 2;
 
       choices.forEach((choice, i) => {
@@ -3315,7 +3631,7 @@ export class GameScene extends Phaser.Scene {
           pendingText?.destroy();
           AudioSystem.play('upgrade');
           this.resumeAfterChoice();
-        });
+        }, cardScale);
         cards.push(card);
       });
 
@@ -3357,7 +3673,7 @@ export class GameScene extends Phaser.Scene {
     rebuild();
   }
 
-  private createSkillCard(x: number, y: number, choice: RollChoice, onPick: () => void): Phaser.GameObjects.Container {
+  private createSkillCard(x: number, y: number, choice: RollChoice, onPick: () => void, cardScale = 1): Phaser.GameObjects.Container {
     const { skill, currentLevel, nearSynergies, synergyHints } = choice;
     const w = 180;
     const hasNearSynergy = nearSynergies.length > 0;
@@ -3454,13 +3770,13 @@ export class GameScene extends Phaser.Scene {
     const card = this.add.container(x, y, children).setDepth(31);
     card.setSize(w, h).setInteractive({ useHandCursor: true });
     let pressed = false;
-    card.on('pointerdown', () => { pressed = true; card.setScale(1.06); });
-    card.on('pointerover', () => card.setScale(1.06));
-    card.on('pointerout', () => { pressed = false; card.setScale(1); });
+    card.on('pointerdown', () => { pressed = true; card.setScale(1.06 * cardScale); });
+    card.on('pointerover', () => card.setScale(1.06 * cardScale));
+    card.on('pointerout', () => { pressed = false; card.setScale(cardScale); });
     card.on('pointerup', () => { if (pressed) onPick(); });
 
-    card.setScale(0.8).setAlpha(0);
-    this.tweens.add({ targets: card, scale: 1, alpha: 1, duration: 220, ease: 'Back.Out' });
+    card.setScale(0.8 * cardScale).setAlpha(0);
+    this.tweens.add({ targets: card, scale: cardScale, alpha: 1, duration: 220, ease: 'Back.Out' });
     if (hasNearSynergy) {
       this.tweens.add({ targets: iconHalo, alpha: 0.55, duration: 650, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
     }

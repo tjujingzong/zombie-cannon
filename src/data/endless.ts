@@ -1,6 +1,6 @@
 import type { LevelConfig } from './levels';
 
-export type EndlessMutationKey = 'overrun' | 'carapace' | 'frenzy' | 'ascension';
+export type EndlessMutationKey = 'overrun' | 'carapace' | 'frenzy' | 'ascension' | 'toxicTide' | 'voidSurge';
 
 export interface EndlessMutationDef {
   key: EndlessMutationKey;
@@ -34,6 +34,16 @@ export const ENDLESS_MUTATIONS: Record<EndlessMutationKey, EndlessMutationDef> =
     key: 'ascension', name: '精英升格', danger: '精英出现率 +8%',
     color: 0xab47bc, colorHex: '#ce93d8',
     countPerStack: 0, hpPerStack: 0.06, speedPerStack: 0, eliteChancePerStack: 0.08,
+  },
+  toxicTide: {
+    key: 'toxicTide', name: '腐蚀潮涌', danger: '敌军生命 +10%，精英率 +4%',
+    color: 0x9ccc65, colorHex: '#aed581',
+    countPerStack: 0, hpPerStack: 0.1, speedPerStack: 0, eliteChancePerStack: 0.04,
+  },
+  voidSurge: {
+    key: 'voidSurge', name: '虚空涌动', danger: '敌军速度 +7%，规模 +6%',
+    color: 0xb388ff, colorHex: '#b388ff',
+    countPerStack: 0.06, hpPerStack: 0, speedPerStack: 0.07, eliteChancePerStack: 0,
   },
 };
 

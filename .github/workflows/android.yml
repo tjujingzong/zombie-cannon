@@ -30,21 +30,64 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Resolve development version and signing mode
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          echo "ANDROID_VERSION_NAME=${PACKAGE_VERSION}-dev.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+          echo "ANDROID_VERSION_CODE=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+          missing=0
+          for value in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!value}" ]; then
+              echo "::warning::Missing GitHub Actions secret: $value"
+              missing=1
+            fi
+          done
+          if [ "$missing" -eq 0 ]; then
+            echo "ANDROID_RELEASE_SIGNING=true" >> "$GITHUB_ENV"
+            echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/zombie-cannon-release.jks" >> "$GITHUB_ENV"
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/zombie-cannon-release.jks"
+          else
+            echo "ANDROID_RELEASE_SIGNING=false" >> "$GITHUB_ENV"
+          fi
+
       - name: Install and sync web app
         run: |
           npm ci
           npm run android:sync
 
-      - name: Build installable debug APK
+      - name: Build installable APK
         working-directory: android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
+          if [ "$ANDROID_RELEASE_SIGNING" = "true" ]; then
+            ./gradlew assembleRelease --stacktrace
+          else
+            ./gradlew assembleDebug --stacktrace
+          fi
 
-      - name: Stage APK
+      - name: Verify and stage APK
         run: |
+          if [ "$ANDROID_RELEASE_SIGNING" = "true" ]; then
+            APK="android/app/build/outputs/apk/release/app-release.apk"
+            APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+            test -n "$APKSIGNER"
+            "$APKSIGNER" verify --print-certs "$APK"
+          else
+            APK="android/app/build/outputs/apk/debug/app-debug.apk"
+            echo "::warning::Release signing secrets are missing; publishing a debug-signed installable APK."
+          fi
+          test -f "$APK"
           mkdir -p output
-          cp android/app/build/outputs/apk/debug/app-debug.apk output/zombie-cannon-android.apk
+          cp "$APK" output/zombie-cannon-android.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -60,7 +103,12 @@ jobs:
         run: |
           TAG="android-latest"
           APK="output/zombie-cannon-android.apk"
-          NOTES=$(printf '由 main 分支自动构建，可直接下载安装。\n\n- 提交：%s\n- 构建：%s/%s/actions/runs/%s\n\n此体验版使用 Android 调试证书签名；正式签名版本会以 v* 标签单独发布。' "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
+          if [ "$ANDROID_RELEASE_SIGNING" = "true" ]; then
+            SIGNING_LABEL="release keystore"
+          else
+            SIGNING_LABEL="Android debug certificate"
+          fi
+          NOTES=$(printf '由 main 分支自动构建，可直接下载安装。\n\n- 版本：%s（versionCode %s）\n- 提交：%s\n- 构建：%s/%s/actions/runs/%s\n- 签名：%s\n\n若签名证书与设备上的旧包不同，请先在游戏主菜单导出存档，再卸载旧包。' "$ANDROID_VERSION_NAME" "$ANDROID_VERSION_CODE" "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$SIGNING_LABEL")
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" --clobber
             gh release edit "$TAG" --title "Android 最新体验版" --notes "$NOTES"

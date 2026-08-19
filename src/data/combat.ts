@@ -1,4 +1,12 @@
-export type EliteAffix = 'swift' | 'armored' | 'regenerating' | 'splitting';
+export type EliteAffix =
+  | 'swift'
+  | 'armored'
+  | 'regenerating'
+  | 'splitting'
+  | 'volatile'
+  | 'warden'
+  | 'warhorn'
+  | 'adaptive';
 
 export interface EliteAffixDef {
   key: EliteAffix;
@@ -24,6 +32,22 @@ export const ELITE_AFFIXES: Record<EliteAffix, EliteAffixDef> = {
   splitting: {
     key: 'splitting', name: '分裂', shortLabel: '裂', color: 0xff8a80,
     description: '死亡后分裂出尸潮腐尸',
+  },
+  volatile: {
+    key: 'volatile', name: '爆燃', shortLabel: '爆', color: 0xff6e40,
+    description: '死亡时引发范围烈焰爆炸',
+  },
+  warden: {
+    key: 'warden', name: '庇护', shortLabel: '庇', color: 0x64b5f6,
+    description: '周期为周围尸群补充能量护盾',
+  },
+  warhorn: {
+    key: 'warhorn', name: '战号', shortLabel: '号', color: 0xffd740,
+    description: '战号激励周围尸群，移动速度提升',
+  },
+  adaptive: {
+    key: 'adaptive', name: '适应', shortLabel: '适', color: 0xb388ff,
+    description: '逐渐适应所受伤害元素，抗性持续提升',
   },
 };
 
@@ -60,7 +84,7 @@ export const DAMAGE_SOURCE_LABELS: Record<DamageSourceKey, string> = {
   companion: '战术伙伴',
 };
 
-export type BuildPathKey = 'elemental' | 'barrage' | 'missile' | 'fortress';
+export type BuildPathKey = 'elemental' | 'barrage' | 'missile' | 'fortress' | 'apocalypse' | 'dynasty';
 
 export interface BuildPathDef {
   key: BuildPathKey;
@@ -108,6 +132,24 @@ export const BUILD_PATHS: BuildPathDef[] = [
       { skill: 'energyShield', level: 3 },
       { skill: 'minefield', level: 3 },
       { skill: 'fieldMedic', level: 2 },
+    ],
+  },
+  {
+    key: 'apocalypse', name: '湮灭阵列', color: 0xff5252, colorHex: '#ff5252',
+    tagline: '玻璃大炮，孤注一掷', ultimateSynergy: 'apocalypseArray',
+    goals: [
+      { skill: 'glassCannon', level: 2 },
+      { skill: 'titanRound', level: 3 },
+      { skill: 'overdriveFusion', level: 2 },
+    ],
+  },
+  {
+    key: 'dynasty', name: '钢铁王朝', color: 0x4db6ac, colorHex: '#4db6ac',
+    tagline: '保险自修，不倒防线', ultimateSynergy: 'ironDynasty',
+    goals: [
+      { skill: 'insuranceProtocol', level: 1 },
+      { skill: 'blastDoors', level: 3 },
+      { skill: 'autoWelder', level: 3 },
     ],
   },
 ];

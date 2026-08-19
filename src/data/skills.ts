@@ -225,6 +225,204 @@ export const SKILLS: SkillDef[] = [
     key: 'rareRequisition', name: '稀有征调令', desc: '进一步提高史诗与传说技能出现率',
     icon: 'icon_lucky', rarity: 'epic', category: 'utility', maxLevel: 3, perLevel: 0.12,
   },
+
+  // ── 二期扩充 · 攻击 ──
+  {
+    key: 'titanRound', name: '泰坦重弹', desc: '攻击力 +26%，攻速 -6%',
+    icon: 'icon_damage', rarity: 'common', category: 'offense', maxLevel: 4, perLevel: 0.26,
+  },
+  {
+    key: 'swiftLoader', name: '快速装填手', desc: '攻速 +9%，暴击率 +2%',
+    icon: 'icon_firerate', rarity: 'common', category: 'offense', maxLevel: 5, perLevel: 0.09,
+  },
+  {
+    key: 'depletedRounds', name: '贫铀穿甲弹', desc: '穿透 +2',
+    icon: 'icon_pierce', rarity: 'rare', category: 'offense', maxLevel: 2, perLevel: 2,
+  },
+  {
+    key: 'heavyImpact', name: '重锤冲击', desc: '主炮命中有 15% 概率/级击退非首领单位',
+    icon: 'icon_execute', rarity: 'common', category: 'offense', maxLevel: 3, perLevel: 0.15,
+  },
+  {
+    key: 'vampiricRounds', name: '嗜血弹头', desc: '每次击杀修复墙体 0.4% 耐久',
+    icon: 'icon_repair', rarity: 'rare', category: 'offense', maxLevel: 3, perLevel: 0.004,
+  },
+  {
+    key: 'criticalDetonation', name: '暴击起爆', desc: '暴击命中触发小型爆炸，造成 35% 伤害',
+    icon: 'icon_deton', rarity: 'epic', category: 'offense', maxLevel: 2, perLevel: 0.35,
+  },
+  {
+    key: 'momentumFire', name: '惯性火力', desc: '连击 25 层时攻速提高，连击越高加成越强',
+    icon: 'icon_barrage', rarity: 'rare', category: 'offense', maxLevel: 3, perLevel: 0.025,
+  },
+  {
+    key: 'chainCritCombo', name: '临界连锁', desc: '连击 40 层时暴击率提高，连击越高越致命',
+    icon: 'icon_crit', rarity: 'rare', category: 'offense', maxLevel: 3, perLevel: 0.025,
+  },
+  {
+    key: 'berserkerProtocol', name: '狂战协议', desc: '墙体低于 60% 时，战损越高攻速越快',
+    icon: 'icon_fatal', rarity: 'epic', category: 'offense', maxLevel: 2, perLevel: 0.14,
+  },
+  {
+    key: 'resonanceAmplifier', name: '共振增幅', desc: '命中弱点元素时伤害 +9%/级',
+    icon: 'icon_lucky', rarity: 'rare', category: 'offense', maxLevel: 4, perLevel: 0.09,
+  },
+  {
+    key: 'weaknessMark', name: '弱点标记', desc: '弱点命中标记敌人 3.5 秒，承受全伤害 +4%/级',
+    icon: 'icon_execute', rarity: 'epic', category: 'offense', maxLevel: 3, perLevel: 0.04,
+  },
+  {
+    key: 'pyroclastFlow', name: '火成岩流', desc: '灼烧中的敌人死亡时向周围扩散火焰',
+    icon: 'icon_burn', rarity: 'rare', category: 'offense', maxLevel: 2, perLevel: 1, element: 'fire',
+  },
+  {
+    key: 'cryoShatterNova', name: '冰碎新星', desc: '击杀被减速的敌人时引发冰爆并减速周围',
+    icon: 'icon_cryo_mine', rarity: 'epic', category: 'offense', maxLevel: 2, perLevel: 1, element: 'frost',
+  },
+  {
+    key: 'toxicBloom', name: '腐毒绽放', desc: '被腐蚀的敌人死亡时把腐蚀传染给最近的敌人',
+    icon: 'icon_toxic', rarity: 'epic', category: 'offense', maxLevel: 2, perLevel: 1, element: 'toxic',
+  },
+  {
+    key: 'staticField', name: '静电领域', desc: '靠近墙体的敌人持续减速 8%，每级 +2%',
+    icon: 'icon_chain', rarity: 'rare', category: 'offense', maxLevel: 3, perLevel: 0.02, element: 'lightning',
+  },
+  {
+    key: 'arcExtender', name: '电弧延长器', desc: '连锁闪电弹射 +1 次，伤害 +8%',
+    icon: 'icon_chain', rarity: 'rare', category: 'offense', maxLevel: 3, perLevel: 1, element: 'lightning',
+  },
+  {
+    key: 'missileRack', name: '导弹挂架', desc: '追踪导弹齐射数量 +1',
+    icon: 'icon_missile', rarity: 'epic', category: 'offense', maxLevel: 2, perLevel: 1,
+  },
+  {
+    key: 'lensFocus', name: '聚焦透镜', desc: '激光束每秒伤害 +35%/级',
+    icon: 'icon_laser', rarity: 'epic', category: 'offense', maxLevel: 2, perLevel: 0.35, element: 'energy',
+  },
+  {
+    key: 'glassCannon', name: '玻璃大炮', desc: '攻击力 +40%，但墙体承受伤害 +16%',
+    icon: 'icon_doom', rarity: 'epic', category: 'offense', maxLevel: 2, perLevel: 0.4,
+  },
+  {
+    key: 'bountyRounds', name: '赏金弹头', desc: '每次击杀额外 +2 金币',
+    icon: 'icon_gold', rarity: 'common', category: 'offense', maxLevel: 3, perLevel: 2,
+  },
+  {
+    key: 'eliteExecutioner', name: '精英处刑者', desc: '处决阈值 +8%，处决伤害 +25%',
+    icon: 'icon_execute', rarity: 'epic', category: 'offense', maxLevel: 2, perLevel: 0.08,
+  },
+  {
+    key: 'comboMaintenance', name: '连击养护', desc: '连击伤害加成每层额外 +0.4%/级',
+    icon: 'icon_multishot', rarity: 'common', category: 'offense', maxLevel: 3, perLevel: 0.004,
+  },
+  {
+    key: 'overdriveFusion', name: '过载聚变', desc: '按当前过载充能比例转化为攻击力加成',
+    icon: 'icon_gravity', rarity: 'rare', category: 'offense', maxLevel: 3, perLevel: 0.25,
+  },
+
+  // ── 二期扩充 · 防御 ──
+  {
+    key: 'autoWelder', name: '自动焊机', desc: '场上无敌人时墙体每秒回复 0.5% 生命',
+    icon: 'icon_repair', rarity: 'rare', category: 'defense', maxLevel: 3, perLevel: 0.005,
+  },
+  {
+    key: 'blastDoors', name: '防爆闸门', desc: '墙体单次受击伤害上限降低 3 点/级',
+    icon: 'icon_steel', rarity: 'rare', category: 'defense', maxLevel: 3, perLevel: 3,
+  },
+  {
+    key: 'counterBattery', name: '反击火炮', desc: '墙体受击时 9%/级 概率以主炮伤害反击',
+    icon: 'icon_thorns', rarity: 'rare', category: 'defense', maxLevel: 3, perLevel: 0.09,
+  },
+  {
+    key: 'dawnFortify', name: '晨间加固', desc: '每波开始时获得 22 点/级 临时护盾',
+    icon: 'icon_shield', rarity: 'rare', category: 'defense', maxLevel: 3, perLevel: 22,
+  },
+  {
+    key: 'insuranceProtocol', name: '保险协议', desc: '墙体首次倒下时转化为 40% 紧急修复',
+    icon: 'icon_fortress', rarity: 'legendary', category: 'defense', maxLevel: 1, perLevel: 0.4,
+  },
+  {
+    key: 'expandedMinefield', name: '雷区扩容', desc: '地雷上限 +3，地雷伤害 +15%',
+    icon: 'icon_minefield', rarity: 'rare', category: 'defense', maxLevel: 2, perLevel: 3,
+  },
+  {
+    key: 'energyBackflow', name: '能量回流', desc: '护盾恢复速度 +12%/级，护盾量 +8%',
+    icon: 'icon_shield', rarity: 'rare', category: 'defense', maxLevel: 3, perLevel: 0.12,
+  },
+  {
+    key: 'emergencyBulkhead', name: '应急隔舱', desc: '墙体低于 30% 时受击伤害额外 -9%/级',
+    icon: 'icon_steel', rarity: 'epic', category: 'defense', maxLevel: 3, perLevel: 0.09,
+  },
+  {
+    key: 'thornAmplifier', name: '棘刺放大器', desc: '反伤伤害 +18%/级',
+    icon: 'icon_thorns', rarity: 'rare', category: 'defense', maxLevel: 3, perLevel: 0.18,
+  },
+  {
+    key: 'repairEfficiency', name: '维修效率', desc: '所有墙体修复效果 +20%/级',
+    icon: 'icon_field_medic', rarity: 'rare', category: 'defense', maxLevel: 3, perLevel: 0.2,
+  },
+  {
+    key: 'lastBreath', name: '最后一口气', desc: '墙体每损失 10% 生命，攻击力 +3%/级',
+    icon: 'icon_fatal', rarity: 'epic', category: 'defense', maxLevel: 3, perLevel: 0.03,
+  },
+  {
+    key: 'bulwarkAura', name: '堡垒光环', desc: '墙体上限 +8%，并同步补充等量耐久',
+    icon: 'icon_fortress', rarity: 'common', category: 'defense', maxLevel: 3, perLevel: 0.08,
+  },
+
+  // ── 二期扩充 · 辅助 ──
+  {
+    key: 'warChest', name: '战争金库', desc: '波次结束时按当前金币获得利息',
+    icon: 'icon_gold', rarity: 'rare', category: 'utility', maxLevel: 3, perLevel: 0.04,
+  },
+  {
+    key: 'veteranStart', name: '老兵增援', desc: '战斗开始时随机获得一项技能',
+    icon: 'icon_lucky', rarity: 'epic', category: 'utility', maxLevel: 2, perLevel: 1,
+  },
+  {
+    key: 'tacticalNetwork', name: '战术网络', desc: '波次强化选项 +1',
+    icon: 'icon_air_support', rarity: 'legendary', category: 'utility', maxLevel: 1, perLevel: 1,
+  },
+  {
+    key: 'logisticsExpert', name: '后勤专家', desc: '重铸技能花费 -18%/级',
+    icon: 'icon_magnet', rarity: 'common', category: 'utility', maxLevel: 3, perLevel: 0.18,
+  },
+  {
+    key: 'luckyPenny', name: '幸运硬币', desc: '金币掉落有 7%/级 概率翻倍',
+    icon: 'icon_gold', rarity: 'rare', category: 'utility', maxLevel: 3, perLevel: 0.07,
+  },
+  {
+    key: 'overdriveSiphon', name: '过载虹吸', desc: '击杀精英或首领时过载 +3/级',
+    icon: 'icon_barrage', rarity: 'rare', category: 'utility', maxLevel: 3, perLevel: 3,
+  },
+  {
+    key: 'deepScanBounty', name: '深层扫描', desc: '击杀被弱点标记的敌人金币 +45%',
+    icon: 'icon_lucky', rarity: 'rare', category: 'utility', maxLevel: 2, perLevel: 0.45,
+  },
+  {
+    key: 'streakFeast', name: '连杀盛宴', desc: '连杀达到阈值时获得金币与过载奖励',
+    icon: 'icon_goldHunter', rarity: 'rare', category: 'utility', maxLevel: 3, perLevel: 1,
+  },
+  {
+    key: 'quartermaster', name: '军需官', desc: '金币获取 +10%/级，每波开始获得补给金币',
+    icon: 'icon_gold', rarity: 'rare', category: 'utility', maxLevel: 3, perLevel: 0.1,
+  },
+  {
+    key: 'rerollEcho', name: '重铸回响', desc: '每波首次重铸免费',
+    icon: 'icon_ricochet', rarity: 'epic', category: 'utility', maxLevel: 1, perLevel: 1,
+  },
+  {
+    key: 'supplyContract', name: '补给契约', desc: '每 5 秒自动获得金币',
+    icon: 'icon_air_support', rarity: 'rare', category: 'utility', maxLevel: 3, perLevel: 4,
+  },
+  {
+    key: 'glorySeeker', name: '荣耀猎手', desc: '对首领伤害 +12%/级，首领金币 +60%',
+    icon: 'icon_fatal', rarity: 'epic', category: 'utility', maxLevel: 2, perLevel: 0.12,
+  },
+  {
+    key: 'battlefieldRecycler', name: '战场回收员', desc: '每次清波立即获得金币 +2/级',
+    icon: 'icon_magnet', rarity: 'common', category: 'utility', maxLevel: 3, perLevel: 2,
+  },
 ];
 
 export function getSkill(key: string): SkillDef {
@@ -467,6 +665,144 @@ export const SYNERGIES: SynergyDef[] = [
       { skill: 'energyShield', minLevel: 3 },
       { skill: 'minefield', minLevel: 3 },
       { skill: 'fieldMedic', minLevel: 2 },
+    ],
+    ultimate: true,
+  },
+
+  // ── 二期扩充组合技 ──
+  {
+    key: 'shockDoctrine',
+    name: '震荡教条',
+    desc: '重锤冲击的击退同时造成 30% 伤害的震荡波',
+    icon: 'icon_execute',
+    requires: [{ skill: 'heavyImpact', minLevel: 2 }, { skill: 'titanRound', minLevel: 2 }],
+  },
+  {
+    key: 'bloodFortress',
+    name: '血肉堡垒',
+    desc: '嗜血击杀同时修复墙体并补充一半数值的护盾',
+    icon: 'icon_goldHunter',
+    requires: [{ skill: 'vampiricRounds', minLevel: 2 }, { skill: 'bulwarkAura', minLevel: 2 }],
+  },
+  {
+    key: 'permafrostPrison',
+    name: '永冻牢笼',
+    desc: '静电领域范围大幅扩大，减速强度 +4%',
+    icon: 'icon_cryo_mine',
+    requires: [{ skill: 'staticField', minLevel: 2 }, { skill: 'cryoAmplifier', minLevel: 2 }],
+  },
+  {
+    key: 'superconductorGrid',
+    name: '超导电网',
+    desc: '连锁闪电额外弹射 2 次，风暴线圈触发率 +6%',
+    icon: 'icon_chain',
+    requires: [{ skill: 'arcExtender', minLevel: 2 }, { skill: 'stormCoil', minLevel: 2 }],
+  },
+  {
+    key: 'pyroclasmChain',
+    name: '火劫连锁',
+    desc: '火焰扩散目标 +1，灼烧伤害提高 20%',
+    icon: 'icon_burn',
+    requires: [{ skill: 'pyroclastFlow', minLevel: 1 }, { skill: 'incendiaryCore', minLevel: 2 }],
+  },
+  {
+    key: 'toxicMeltdown',
+    name: '剧毒熔毁',
+    desc: '死亡腐蚀最多传染给 4 个目标',
+    icon: 'icon_toxic',
+    requires: [{ skill: 'toxicBloom', minLevel: 1 }, { skill: 'toxicPayload', minLevel: 2 }],
+  },
+  {
+    key: 'executionProtocol',
+    name: '处决协议·改',
+    desc: '处决阈值再 +6%，处决窗口大幅放宽',
+    icon: 'icon_execute',
+    requires: [{ skill: 'eliteExecutioner', minLevel: 1 }, { skill: 'executioner', minLevel: 2 }],
+  },
+  {
+    key: 'thornFortress',
+    name: '荆棘要塞',
+    desc: '反伤伤害再 +40%，让尸潮有来无回',
+    icon: 'icon_thorns',
+    requires: [{ skill: 'thornAmplifier', minLevel: 2 }, { skill: 'thorns', minLevel: 3 }],
+  },
+  {
+    key: 'goldenEra',
+    name: '黄金纪元',
+    desc: '战争金库利率 +2%，利息上限翻倍',
+    icon: 'icon_gold',
+    requires: [{ skill: 'warChest', minLevel: 2 }, { skill: 'goldRush', minLevel: 2 }],
+  },
+  {
+    key: 'armsNetwork',
+    name: '军需网络',
+    desc: '重铸花费再 -15%，每次重铸返还 8 金币',
+    icon: 'icon_magnet',
+    requires: [{ skill: 'logisticsExpert', minLevel: 2 }, { skill: 'tacticalReserve', minLevel: 2 }],
+  },
+  {
+    key: 'markAndHunt',
+    name: '标记猎杀',
+    desc: '被标记目标额外承受猎杀令 +15% 增伤',
+    icon: 'icon_fatal',
+    requires: [{ skill: 'weaknessMark', minLevel: 1 }, { skill: 'bossHunter', minLevel: 2 }],
+  },
+  {
+    key: 'coldFusionReactor',
+    name: '冷聚变反应堆',
+    desc: '过载聚变的转化率再 +20%',
+    icon: 'icon_gravity',
+    requires: [{ skill: 'overdriveFusion', minLevel: 2 }, { skill: 'overdriveReservoir', minLevel: 2 }],
+  },
+  {
+    key: 'veteranLegion',
+    name: '老兵军团',
+    desc: '战斗开始时获得两项随机技能',
+    icon: 'icon_lucky',
+    requires: [{ skill: 'veteranStart', minLevel: 1 }, { skill: 'luckyStar', minLevel: 2 }],
+  },
+  {
+    key: 'commandNetwork',
+    name: '指挥网络',
+    desc: '强化选项再 +1（共五项），稀有概率 +10%',
+    icon: 'icon_air_support',
+    requires: [{ skill: 'tacticalNetwork', minLevel: 1 }, { skill: 'rareRequisition', minLevel: 2 }],
+  },
+  {
+    key: 'shatterstormNova',
+    name: '碎冰风暴',
+    desc: '冰碎新星范围 +40%，伤害 +30%',
+    icon: 'icon_cryo_mine',
+    requires: [{ skill: 'cryoShatterNova', minLevel: 1 }, { skill: 'shatterRounds', minLevel: 2 }],
+  },
+  {
+    key: 'overdriveMomentum',
+    name: '过载动能',
+    desc: '精英与首领击杀的过载收益 +20%',
+    icon: 'icon_barrage',
+    requires: [{ skill: 'overdriveSiphon', minLevel: 2 }, { skill: 'glorySeeker', minLevel: 1 }],
+  },
+  {
+    key: 'apocalypseArray',
+    name: '终极·湮灭阵列',
+    desc: '伤害再 +25%，过载聚变转化率翻倍，墙体风险小幅缓和',
+    icon: 'icon_ultimate_apocalypse',
+    requires: [
+      { skill: 'glassCannon', minLevel: 2 },
+      { skill: 'titanRound', minLevel: 3 },
+      { skill: 'overdriveFusion', minLevel: 2 },
+    ],
+    ultimate: true,
+  },
+  {
+    key: 'ironDynasty',
+    name: '终极·钢铁王朝',
+    desc: '紧急修复提升至 60%，战斗回复 +50%，墙体减伤再提高',
+    icon: 'icon_ultimate_dynasty',
+    requires: [
+      { skill: 'insuranceProtocol', minLevel: 1 },
+      { skill: 'blastDoors', minLevel: 3 },
+      { skill: 'autoWelder', minLevel: 3 },
     ],
     ultimate: true,
   },

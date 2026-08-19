@@ -8,7 +8,7 @@ import {
   ZOMBIE_CODEX,
   ZOMBIE_TYPES,
 } from '../data/balance';
-import { LEVELS, LEVEL_ENGINE_INFO, TOTAL_LEVELS } from '../data/levels';
+import { LEVEL_MODIFIERS, LEVELS, LEVEL_ENGINE_INFO, TOTAL_LEVELS, type LevelModifierKey } from '../data/levels';
 import { ARMORY_ITEMS, type ArmoryItemDef } from '../data/shop';
 import {
   BEHAVIOR_EQUIPMENT,
@@ -166,7 +166,7 @@ export class LevelSelectScene extends Phaser.Scene {
       if (!lv) continue;
       const idx = id - startId;
       this.renderTarget = this.levelsContainer;
-      this.createLevelCell(startX + (idx % cols) * cellW, 134 + Math.floor(idx / cols) * cellH, lv.id, lv.name, lv.bossLevel);
+      this.createLevelCell(startX + (idx % cols) * cellW, 134 + Math.floor(idx / cols) * cellH, lv.id, lv.name, lv.bossLevel, lv.modifier);
     }
 
     // 章节情报：填充关卡网格下方空间，给玩家明确的进度和威胁预期
@@ -189,6 +189,11 @@ export class LevelSelectScene extends Phaser.Scene {
       '精英护航加强 · 优先击杀支援单位',
       '远程威胁增加 · 注意防线持续损耗',
       '多首领压境 · 保留过载应对终局',
+      '元素尸潮全面登场 · 针对弱点配弹',
+      '深渊变体出没 · 免疫单位考验弹药储备',
+      '梦魇先锋苏醒 · 动能免疫单位激增',
+      '终局敌群集结 · 每波都是硬仗',
+      '尸潮王座决战 · 全部威胁同时压境',
     ];
 
     this.levelsContainer.add(this.add.text(48, intelY + 24, '章节作战情报', {
@@ -529,7 +534,7 @@ export class LevelSelectScene extends Phaser.Scene {
     }
   }
 
-  private createLevelCell(x: number, y: number, id: number, name: string, isBoss: boolean): void {
+  private createLevelCell(x: number, y: number, id: number, name: string, isBoss: boolean, modifier?: LevelModifierKey): void {
     const unlocked = id <= SaveManager.unlockedLevel;
     const stars = SaveManager.getStars(id);
     const w = 116, h = 142;
@@ -553,14 +558,23 @@ export class LevelSelectScene extends Phaser.Scene {
         this.renderTarget.add(this.add.image(x, y - h / 2 + 14, 'boss_crown').setScale(0.7));
       }
       this.renderTarget.add(
-        this.add.text(x, y - h / 2 + (isBoss ? 34 : 26), `${id}`, {
+        this.add.text(x, y - h / 2 + (isBoss ? 34 : 24), `${id}`, {
           fontFamily: FONT, fontSize: isBoss ? '26px' : '30px', fontStyle: 'bold',
           color: isBoss ? '#ffd54a' : '#ffffff',
         }).setOrigin(0.5)
       );
+      // 深渊词缀角标
+      if (modifier) {
+        const def = LEVEL_MODIFIERS[modifier];
+        this.renderTarget.add(this.add.text(x, y - h / 2 + (isBoss ? 54 : 46), def.shortLabel, {
+          fontFamily: FONT, fontSize: '13px', fontStyle: 'bold',
+          color: def.colorHex, stroke: '#071015', strokeThickness: 3,
+        }).setOrigin(0.5));
+      }
       // 关卡题目（完整名称，自动换行最多两行）
-      const nameTxt = this.add.text(x, y + 2, name, {
-        ...textStyle(18, '#ffffff'), fontStyle: 'bold',
+      const cardName = name.replace(/·第\d+章$/, '');
+      const nameTxt = this.add.text(x, y + 4, cardName, {
+        ...textStyle(17, '#ffffff'), fontStyle: 'bold',
         align: 'center', wordWrap: { width: w - 8 },
         stroke: '#000000', strokeThickness: 2,
       }).setOrigin(0.5);
@@ -568,7 +582,7 @@ export class LevelSelectScene extends Phaser.Scene {
       // 星级
       for (let s = 0; s < 3; s++) {
         this.renderTarget.add(
-          this.add.image(x - 24 + s * 24, y + h / 2 - 18, s < stars ? 'star' : 'star_empty').setScale(0.32)
+          this.add.image(x - 24 + s * 24, y + h / 2 - 14, s < stars ? 'star' : 'star_empty').setScale(0.3)
         );
       }
       const zone = this.add.zone(x, y, w, h).setInteractive({ useHandCursor: true });

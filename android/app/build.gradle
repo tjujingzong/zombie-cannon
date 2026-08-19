@@ -4,8 +4,8 @@ def releaseKeystorePath = System.getenv('ANDROID_KEYSTORE_PATH')
 def hasReleaseKeystore = releaseKeystorePath != null && !releaseKeystorePath.isBlank()
 def versionCodeEnv = System.getenv('ANDROID_VERSION_CODE')?.trim()
 def versionNameEnv = System.getenv('ANDROID_VERSION_NAME')?.trim()
-def resolvedVersionCode = versionCodeEnv ? versionCodeEnv.toInteger() : 1
-def resolvedVersionName = versionNameEnv ?: '1.0.0'
+def resolvedVersionCode = versionCodeEnv ? versionCodeEnv.toInteger() : 2
+def resolvedVersionName = versionNameEnv ?: '1.1.0'
 
 android {
     namespace "io.github.tjujingzong.zombiecannon"

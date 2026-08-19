@@ -37,6 +37,14 @@ export class SkillSystem {
   private overdriveActive = false;
   private enemyFireRateMultiplier = 1;
   private wallRatio = 1;
+  /** 当前连击数（由场景每帧同步，用于惯性火力/临界连锁） */
+  private comboCount = 0;
+  /** 当前过载充能（由场景同步，用于过载聚变） */
+  private overdriveChargeValue = 0;
+  /** 关卡深渊词缀提供的重铸折扣 */
+  private levelRerollDiscount = 0;
+  /** 本波是否已使用免费重铸（重铸回响） */
+  private waveFreeRerollUsed = false;
 
   /** 连杀计数 */
   killStreak = 0;
@@ -62,16 +70,52 @@ export class SkillSystem {
 
   get damage(): number {
     const base = MetaUpgrades.baseDamage();
-    const bonus = this.getLevel('firePower') * getSkill('firePower').perLevel;
+    const bonus = this.getLevel('firePower') * getSkill('firePower').perLevel
+      + this.getLevel('titanRound') * getSkill('titanRound').perLevel
+      + this.getLevel('glassCannon') * getSkill('glassCannon').perLevel
+      + this.lastBreathBonus
+      + this.overdriveFusionBonus;
     const lastStand = this.wallRatio <= 0.3
       ? this.getLevel('lastStand') * getSkill('lastStand').perLevel
       : 0;
-    return base * (1 + bonus + lastStand) * (this.overdriveActive ? 1.65 : 1);
+    const apocalypse = this.hasSynergy('apocalypseArray') ? 0.25 : 0;
+    return base * (1 + bonus + lastStand + apocalypse) * (this.overdriveActive ? 1.65 : 1);
+  }
+
+  /** 最后一口气：每损失 10% 墙血提高伤害 */
+  private get lastBreathBonus(): number {
+    const level = this.getLevel('lastBreath');
+    if (level === 0) return 0;
+    const missing = Math.max(0, 1 - this.wallRatio);
+    return Math.floor(missing * 10) * level * getSkill('lastBreath').perLevel;
+  }
+
+  /** 过载聚变：按过载充能比例转化为伤害 */
+  private get overdriveFusionBonus(): number {
+    const level = this.getLevel('overdriveFusion');
+    if (level === 0) return 0;
+    let rate = level * getSkill('overdriveFusion').perLevel;
+    if (this.hasSynergy('coldFusionReactor')) rate += 0.2;
+    if (this.hasSynergy('apocalypseArray')) rate *= 2;
+    return (this.overdriveChargeValue / 100) * rate;
   }
 
   get fireRate(): number {
     let rate = MetaUpgrades.baseFireRate();
     rate *= 1 + this.getLevel('rapidFire') * getSkill('rapidFire').perLevel;
+    rate *= 1 + this.getLevel('swiftLoader') * getSkill('swiftLoader').perLevel;
+    rate *= Math.max(0.5, 1 - this.getLevel('titanRound') * 0.06);
+    // 惯性火力：连击越高攻速越快
+    const momentum = this.getLevel('momentumFire');
+    if (momentum > 0 && this.comboCount >= 25) {
+      rate *= 1 + momentum * getSkill('momentumFire').perLevel * (this.comboCount >= 60 ? 2 : 1);
+    }
+    // 狂战协议：墙体战损越高攻速越快
+    const berserker = this.getLevel('berserkerProtocol');
+    if (berserker > 0 && this.wallRatio < 0.6) {
+      const strain = Math.max(0, Math.min(1, (0.6 - this.wallRatio) / 0.6));
+      rate *= 1 + berserker * getSkill('berserkerProtocol').perLevel * strain;
+    }
     // 组合技：火力全开 - 多重炮管时攻速额外+50%
     if (this.hasSynergy('barrage') && this.getLevel('multiBarrel') > 0) {
       rate *= 1.5;
@@ -85,12 +129,26 @@ export class SkillSystem {
   }
 
   get pierce(): number {
-    return MetaUpgrades.basePierce() + this.getLevel('armorPiercing') + (this.overdriveActive ? 2 : 0);
+    return MetaUpgrades.basePierce() + this.getLevel('armorPiercing')
+      + this.getLevel('depletedRounds') * getSkill('depletedRounds').perLevel
+      + (this.overdriveActive ? 2 : 0);
   }
 
   get critChance(): number {
-    return Math.min(0.85, MetaUpgrades.baseCritChance()
-      + this.getLevel('criticalAim') * getSkill('criticalAim').perLevel);
+    let chance = MetaUpgrades.baseCritChance()
+      + this.getLevel('criticalAim') * getSkill('criticalAim').perLevel
+      + this.getLevel('swiftLoader') * 0.02;
+    // 临界连锁：高连击提供额外暴击率
+    const chain = this.getLevel('chainCritCombo');
+    if (chain > 0 && this.comboCount >= 40) {
+      chance += chain * getSkill('chainCritCombo').perLevel * (this.comboCount >= 80 ? 2 : 1);
+    }
+    return Math.min(0.85, chance);
+  }
+
+  /** 暴击伤害倍率（暴伤训练） */
+  get critDamageMultiplier(): number {
+    return MetaUpgrades.critDamageMultiplier();
   }
 
   get burnDps(): number {
@@ -113,7 +171,9 @@ export class SkillSystem {
 
   get missileCount(): number {
     const base = this.hasSynergy('saturationStrike') ? 3 : 1;
-    return base + (this.hasSynergy('orbitalCommand') ? 2 : 0);
+    return base
+      + (this.hasSynergy('orbitalCommand') ? 2 : 0)
+      + this.getLevel('missileRack');
   }
 
   get explosiveDamage(): number {
@@ -125,12 +185,84 @@ export class SkillSystem {
     return (80 + this.getLevel('explosiveRound') * 20) * (1 + cluster);
   }
 
+  /** 暴击起爆：暴击命中引发的小型爆炸伤害系数 */
+  get criticalDetonationMultiplier(): number {
+    const level = this.getLevel('criticalDetonation');
+    return level > 0 ? 0.35 + (level - 1) * 0.15 : 0;
+  }
+
+  /** 重锤冲击：主炮击退概率 */
+  get heavyImpactChance(): number {
+    return this.getLevel('heavyImpact') * getSkill('heavyImpact').perLevel;
+  }
+
+  /** 共振增幅：弱点命中额外增伤 */
+  get resonanceBonus(): number {
+    return this.getLevel('resonanceAmplifier') * getSkill('resonanceAmplifier').perLevel;
+  }
+
+  /** 弱点标记：被标记目标承受的全伤害加成 */
+  get weaknessMarkBonus(): number {
+    return this.getLevel('weaknessMark') * getSkill('weaknessMark').perLevel;
+  }
+
+  /** 火成岩流：死亡扩散火焰的目标数 */
+  get pyroclastTargets(): number {
+    const level = this.getLevel('pyroclastFlow');
+    if (level === 0) return 0;
+    return level + (this.hasSynergy('pyroclasmChain') ? 1 : 0);
+  }
+
+  /** 冰碎新星：击杀减速敌人引发冰爆（伤害系数） */
+  get cryoShatterMultiplier(): number {
+    const level = this.getLevel('cryoShatterNova');
+    if (level === 0) return 0;
+    return (0.5 + level * 0.25) * (this.hasSynergy('shatterstormNova') ? 1.3 : 1);
+  }
+
+  get cryoShatterRadius(): number {
+    return 110 * (this.hasSynergy('shatterstormNova') ? 1.4 : 1);
+  }
+
+  /** 腐毒绽放：死亡腐蚀传染目标数 */
+  get toxicBloomTargets(): number {
+    const level = this.getLevel('toxicBloom');
+    if (level === 0) return 0;
+    return level + (this.hasSynergy('toxicMeltdown') ? 2 : 0);
+  }
+
+  /** 静电领域：近墙减速强度与范围 */
+  get staticFieldSlow(): number {
+    const level = this.getLevel('staticField');
+    if (level === 0) return 0;
+    return 0.08 + (level - 1) * getSkill('staticField').perLevel
+      + (this.hasSynergy('permafrostPrison') ? 0.04 : 0);
+  }
+
+  get staticFieldRange(): number {
+    return 260 + (this.hasSynergy('permafrostPrison') ? 80 : 0);
+  }
+
+  /** 电弧延长器：连锁闪电额外弹射与增伤 */
+  get arcBounceBonus(): number {
+    return this.getLevel('arcExtender') + (this.hasSynergy('superconductorGrid') ? 2 : 0);
+  }
+
+  get arcDamageMultiplier(): number {
+    return 1 + this.getLevel('arcExtender') * 0.08;
+  }
+
+  /** 连击伤害每层加成（连击养护） */
+  get comboDamagePerStack(): number {
+    return 0.02 + this.getLevel('comboMaintenance') * getSkill('comboMaintenance').perLevel;
+  }
+
   get hasLaser(): boolean {
     return this.getLevel('laserBeam') > 0;
   }
 
   get laserDps(): number {
-    return this.damage * 0.5;
+    return this.damage * 0.5 * (1 + this.getLevel('lensFocus') * getSkill('lensFocus').perLevel);
   }
 
   get wallDamageReduction(): number {
@@ -140,8 +272,56 @@ export class SkillSystem {
     return Math.min(0.86, base + reactive + synergy + (this.hasSynergy('eternalFortress') ? 0.07 : 0));
   }
 
+  /** 玻璃大炮 + 应急隔舱相关的动态墙体承伤修正（由场景在 damageWall 中应用） */
+  get glassCannonWallPenalty(): number {
+    const penalty = this.getLevel('glassCannon') * 0.16;
+    return Math.max(0, penalty - (this.hasSynergy('apocalypseArray') ? 0.08 : 0));
+  }
+
+  get bulkheadReduction(): number {
+    const level = this.getLevel('emergencyBulkhead');
+    if (level === 0 || this.wallRatio > 0.3) return 0;
+    return level * getSkill('emergencyBulkhead').perLevel;
+  }
+
+  /** 防爆闸门：单次墙体伤害上限 */
+  get blastDoorCap(): number {
+    const level = this.getLevel('blastDoors');
+    return level > 0 ? Math.max(12, 30 - level * getSkill('blastDoors').perLevel) : Infinity;
+  }
+
   get thornsDamage(): number {
-    return this.getLevel('thorns') * getSkill('thorns').perLevel;
+    const amplifier = this.getLevel('thornAmplifier') * getSkill('thornAmplifier').perLevel;
+    const fortress = this.hasSynergy('thornFortress') ? 1.4 : 1;
+    return this.getLevel('thorns') * getSkill('thorns').perLevel * (1 + amplifier) * fortress;
+  }
+
+  /** 反击火炮：墙体受击反击概率 */
+  get counterBatteryChance(): number {
+    return this.getLevel('counterBattery') * getSkill('counterBattery').perLevel;
+  }
+
+  /** 自动焊机：空窗期墙体回复速率（每秒最大生命比例） */
+  get autoWelderRate(): number {
+    const level = this.getLevel('autoWelder');
+    if (level === 0) return 0;
+    return level * getSkill('autoWelder').perLevel * (this.hasSynergy('ironDynasty') ? 1.5 : 1);
+  }
+
+  /** 保险协议：墙体首次倒下时的紧急修复比例 */
+  get insuranceRepairRatio(): number {
+    if (this.getLevel('insuranceProtocol') === 0) return 0;
+    return this.hasSynergy('ironDynasty') ? 0.6 : getSkill('insuranceProtocol').perLevel;
+  }
+
+  /** 维修效率：所有墙体修复效果的增幅 */
+  get repairBonus(): number {
+    return 1 + this.getLevel('repairEfficiency') * getSkill('repairEfficiency').perLevel;
+  }
+
+  /** 晨间加固：每波开始的临时护盾量 */
+  get dawnShieldAmount(): number {
+    return this.getLevel('dawnFortify') * getSkill('dawnFortify').perLevel;
   }
 
   get hasIronWall(): boolean {
@@ -152,18 +332,88 @@ export class SkillSystem {
     const lv = this.getLevel('energyShield');
     if (lv === 0) return Infinity;
     const base = 10;
-    return this.hasSynergy('fortress') ? base / 2 : base;
+    const fortressInterval = this.hasSynergy('fortress') ? base / 2 : base;
+    return fortressInterval / (1 + this.getLevel('energyBackflow') * getSkill('energyBackflow').perLevel);
   }
 
   get shieldAmount(): number {
     const amount = 50 + this.getLevel('energyShield') * getSkill('energyShield').perLevel;
-    return this.hasSynergy('eternalFortress') ? amount * 1.5 : amount;
+    const backflow = 1 + this.getLevel('energyBackflow') * 0.08;
+    return amount * backflow * (this.hasSynergy('eternalFortress') ? 1.5 : 1);
   }
 
   get coinMultiplier(): number {
     let m = MetaUpgrades.coinMultiplier();
     m *= 1 + this.getLevel('goldRush') * getSkill('goldRush').perLevel;
+    m *= 1 + this.getLevel('quartermaster') * getSkill('quartermaster').perLevel;
     return m;
+  }
+
+  /** 战争金库：波次结束利息率与上限 */
+  get warChestRate(): number {
+    const level = this.getLevel('warChest');
+    if (level === 0) return 0;
+    return level * getSkill('warChest').perLevel + (this.hasSynergy('goldenEra') ? 0.02 : 0);
+  }
+
+  get warChestCap(): number {
+    const level = this.getLevel('warChest');
+    return level * 60 * (this.hasSynergy('goldenEra') ? 2 : 1);
+  }
+
+  /** 幸运硬币：掉落翻倍概率 */
+  get luckyPennyChance(): number {
+    return this.getLevel('luckyPenny') * getSkill('luckyPenny').perLevel;
+  }
+
+  /** 过载虹吸：精英/首领击杀过载 */
+  get overdriveSiphonAmount(): number {
+    const amount = this.getLevel('overdriveSiphon') * getSkill('overdriveSiphon').perLevel;
+    return amount * (this.hasSynergy('overdriveMomentum') ? 1.2 : 1);
+  }
+
+  /** 深层扫描：击杀被标记敌人金币加成 */
+  get deepScanCoinBonus(): number {
+    return this.getLevel('deepScanBounty') * getSkill('deepScanBounty').perLevel;
+  }
+
+  /** 军需官：每波开始补给金币 */
+  get quartermasterWaveCoins(): number {
+    return this.getLevel('quartermaster') * 8;
+  }
+
+  /** 补给契约：每 5 秒被动金币 */
+  get supplyContractCoins(): number {
+    return this.getLevel('supplyContract') * getSkill('supplyContract').perLevel;
+  }
+
+  /** 连杀盛宴等级（奖励规模） */
+  get streakFeastLevel(): number {
+    return this.getLevel('streakFeast');
+  }
+
+  /** 赏金弹头：每次击杀固定金币 */
+  get bountyFlatCoins(): number {
+    return this.getLevel('bountyRounds') * getSkill('bountyRounds').perLevel;
+  }
+
+  /** 战场回收员：清波金币 */
+  get battlefieldRecyclerCoins(): number {
+    return this.getLevel('battlefieldRecycler') * getSkill('battlefieldRecycler').perLevel;
+  }
+
+  /** 荣耀猎手：首领增伤与首领金币加成 */
+  get gloryBossDamageBonus(): number {
+    return this.getLevel('glorySeeker') * getSkill('glorySeeker').perLevel;
+  }
+
+  get gloryBossCoinBonus(): number {
+    return this.getLevel('glorySeeker') > 0 ? 0.6 : 0;
+  }
+
+  /** 嗜血弹头：击杀修复比例（叠加血堡组合技时附带护盾） */
+  get vampiricRepairRatio(): number {
+    return this.getLevel('vampiricRounds') * getSkill('vampiricRounds').perLevel;
   }
 
   get hasMagnet(): boolean {
@@ -179,12 +429,15 @@ export class SkillSystem {
 
   get executionThreshold(): number {
     const level = this.getLevel('executioner');
-    return level > 0 ? 0.18 + level * 0.06 : 0;
+    const eliteBonus = this.getLevel('eliteExecutioner') * getSkill('eliteExecutioner').perLevel;
+    const protocolBonus = this.hasSynergy('executionProtocol') ? 0.06 : 0;
+    return level > 0 ? 0.18 + level * 0.06 + eliteBonus + protocolBonus : 0;
   }
 
   get executionDamageMultiplier(): number {
     const level = this.getLevel('executioner');
-    return level > 0 ? 1.45 + level * getSkill('executioner').perLevel : 1;
+    const eliteBoost = this.getLevel('eliteExecutioner') > 0 ? 1.25 : 1;
+    return level > 0 ? (1.45 + level * getSkill('executioner').perLevel) * eliteBoost : 1;
   }
 
   get airSupportInterval(): number {
@@ -225,11 +478,13 @@ export class SkillSystem {
 
   get mineLimit(): number {
     const level = this.getLevel('minefield');
-    return level > 0 ? 3 + level * 2 : 0;
+    const expanded = this.getLevel('expandedMinefield') * getSkill('expandedMinefield').perLevel;
+    return level > 0 ? 3 + level * 2 + expanded : 0;
   }
 
   get mineDamage(): number {
-    return this.damage * (1.8 + this.getLevel('minefield') * 0.65);
+    const expansion = 1 + this.getLevel('expandedMinefield') * 0.15;
+    return this.damage * (1.8 + this.getLevel('minefield') * 0.65) * expansion;
   }
 
   get fieldMedicKillInterval(): number {
@@ -249,7 +504,9 @@ export class SkillSystem {
 
   get stormCoilChance(): number {
     const base = this.getLevel('stormCoil') * getSkill('stormCoil').perLevel;
-    return Math.min(0.55, base + (this.hasSynergy('firestormCircuit') ? 0.12 : 0));
+    return Math.min(0.55, base
+      + (this.hasSynergy('firestormCircuit') ? 0.12 : 0)
+      + (this.hasSynergy('superconductorGrid') ? 0.06 : 0));
   }
 
   get weaknessBonus(): number {
@@ -259,7 +516,13 @@ export class SkillSystem {
 
   get eliteBossDamageMultiplier(): number {
     const base = 1 + this.getLevel('bossHunter') * getSkill('bossHunter').perLevel;
-    return this.hasSynergy('adaptiveHunter') ? base + 0.22 : base;
+    const glory = 1 + this.gloryBossDamageBonus;
+    return (this.hasSynergy('adaptiveHunter') ? base + 0.22 : base) * glory;
+  }
+
+  /** 弱点标记猎杀：被标记目标额外承受的猎杀增伤 */
+  get markAndHuntBonus(): number {
+    return this.hasSynergy('markAndHunt') ? 0.15 : 0;
   }
 
   get overdriveGainMultiplier(): number {
@@ -339,7 +602,39 @@ export class SkillSystem {
     const requisition = this.getLevel('rareRequisition') * getSkill('rareRequisition').perLevel;
     return this.getLevel('luckyStar') * getSkill('luckyStar').perLevel
       + requisition
-      + (this.hasSynergy('requisitionNetwork') ? 0.12 : 0);
+      + (this.hasSynergy('requisitionNetwork') ? 0.12 : 0)
+      + (this.hasSynergy('commandNetwork') ? 0.1 : 0)
+      + MetaUpgrades.luckBlessing();
+  }
+
+  /** 波次强化选项数量（战术网络/指挥网络） */
+  get choiceCount(): number {
+    return 3
+      + (this.hasSkill('tacticalNetwork') ? 1 : 0)
+      + (this.hasSynergy('commandNetwork') ? 1 : 0);
+  }
+
+  /** 老兵增援：战斗开始时随机获得的技能数量 */
+  get veteranStartCount(): number {
+    if (this.getLevel('veteranStart') === 0) return 0;
+    return this.hasSynergy('veteranLegion') ? 2 : 1;
+  }
+
+  setCombo(count: number): void {
+    this.comboCount = Math.max(0, count);
+  }
+
+  setOverdriveChargeValue(value: number): void {
+    this.overdriveChargeValue = Math.max(0, Math.min(100, value));
+  }
+
+  setLevelRerollDiscount(discount: number): void {
+    this.levelRerollDiscount = Math.max(0, Math.min(0.6, discount));
+  }
+
+  /** 每波开始重置免费重铸（重铸回响） */
+  resetWaveReroll(): void {
+    this.waveFreeRerollUsed = false;
   }
 
   /** 连杀伤害加成 */
@@ -475,9 +770,13 @@ export class SkillSystem {
 
   /** reroll 花费金币数 */
   getRerollCost(): number {
+    if (this.hasSkill('rerollEcho') && !this.waveFreeRerollUsed) return 0;
     const base = 30 + this.rerollsUsed * 20;
-    const discount = this.getLevel('tacticalReserve') * getSkill('tacticalReserve').perLevel;
-    return Math.max(10, Math.round(base * Math.max(0.5, 1 - discount)));
+    const discount = this.getLevel('tacticalReserve') * getSkill('tacticalReserve').perLevel
+      + this.getLevel('logisticsExpert') * getSkill('logisticsExpert').perLevel
+      + (this.hasSynergy('armsNetwork') ? 0.15 : 0)
+      + this.levelRerollDiscount;
+    return Math.max(10, Math.round(base * Math.max(0.35, 1 - discount)));
   }
 
   canReroll(coins: number): boolean {
@@ -485,6 +784,9 @@ export class SkillSystem {
   }
 
   doReroll(): RollChoice[] {
+    if (this.hasSkill('rerollEcho') && !this.waveFreeRerollUsed) {
+      this.waveFreeRerollUsed = true;
+    }
     this.rerollsUsed++;
     return this.rollChoices(3);
   }
@@ -531,7 +833,7 @@ export class SkillSystem {
     if (key === 'emergencyRepair') {
       this.onRepair(skill.perLevel);
     }
-    if (key === 'reinforcedFoundation') {
+    if (key === 'reinforcedFoundation' || key === 'bulwarkAura') {
       this.onWallCapacity(skill.perLevel);
     }
 

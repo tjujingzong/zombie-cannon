@@ -664,6 +664,33 @@ export class BootScene extends Phaser.Scene {
       g.fillStyle(0xe8f5e9, 1).fillRect(27, 13, 10, 38);
       g.fillRect(13, 27, 38, 10);
     });
+    // ── 终极流派图标 ──
+    mk('icon_ultimate_apocalypse', (g) => {
+      g.fillStyle(0x1a0a0a, 1).fillCircle(32, 32, 26);
+      g.fillStyle(0xff1744, 1);
+      for (let i = 0; i < 8; i++) {
+        const a = (i * Math.PI) / 4;
+        g.fillTriangle(
+          32 + Math.cos(a) * 8, 32 + Math.sin(a) * 8,
+          32 + Math.cos(a + 0.25) * 26, 32 + Math.sin(a + 0.25) * 26,
+          32 + Math.cos(a - 0.25) * 26, 32 + Math.sin(a - 0.25) * 26,
+        );
+      }
+      g.fillStyle(0xffd54a, 1).fillCircle(32, 32, 9);
+      g.fillStyle(0xffffff, 0.85).fillCircle(32, 32, 4);
+    });
+    mk('icon_ultimate_dynasty', (g) => {
+      g.fillStyle(0x0a1a18, 1).fillRoundedRect(8, 14, 48, 44, 6);
+      g.lineStyle(4, 0x4db6ac, 1).strokeRoundedRect(8, 14, 48, 44, 6);
+      g.lineStyle(4, 0x80cbc4, 1);
+      g.lineBetween(8, 30, 56, 30);
+      g.lineBetween(8, 44, 56, 44);
+      g.fillStyle(0xffd54a, 1);
+      g.fillTriangle(18, 14, 24, 2, 30, 14);
+      g.fillTriangle(34, 14, 40, 2, 46, 14);
+      g.fillStyle(0x4db6ac, 1).fillCircle(32, 37, 7);
+      g.fillStyle(0xffffff, 0.8).fillCircle(32, 37, 3);
+    });
 
     // ── 结算星星 ──
     mk('star', (g) => {

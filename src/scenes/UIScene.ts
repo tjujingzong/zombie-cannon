@@ -210,45 +210,47 @@ export class UIScene extends Phaser.Scene {
       }).setDepth(52);
     objects.push(loadout);
     this.game_.skills.getBuildProgress().forEach((build, index) => {
-      const y = 194 + index * 105;
+      const y = 190 + index * 80;
       const name = this.add.text(72, y, build.name, {
-        fontFamily: FONT, fontSize: '23px', fontStyle: 'bold', color: build.colorHex,
+        fontFamily: FONT, fontSize: '21px', fontStyle: 'bold', color: build.colorHex,
       }).setDepth(52);
       const percent = Math.round(build.progress * 100);
       const status = this.add.text(GAME_WIDTH - 72, y + 2, build.ultimateActive ? '终极已激活' : `${percent}%`, {
-        fontFamily: FONT, fontSize: '18px', fontStyle: 'bold', color: build.ultimateActive ? '#ffd54a' : '#b0bec5',
+        fontFamily: FONT, fontSize: '17px', fontStyle: 'bold', color: build.ultimateActive ? '#ffd54a' : '#b0bec5',
       }).setOrigin(1, 0).setDepth(52);
-      const tagline = this.add.text(72, y + 34, build.ultimateActive ? build.ultimateName : build.tagline, {
-        fontFamily: FONT, fontSize: '15px', color: '#83939e',
+      const tagline = this.add.text(72, y + 30, build.ultimateActive ? build.ultimateName : build.tagline, {
+        fontFamily: FONT, fontSize: '14px', color: '#83939e',
       }).setDepth(52);
       const bar = this.add.graphics().setDepth(52);
-      bar.fillStyle(0x26343d, 1).fillRoundedRect(72, y + 66, GAME_WIDTH - 144, 12, 6);
+      bar.fillStyle(0x26343d, 1).fillRoundedRect(72, y + 56, GAME_WIDTH - 144, 10, 5);
       if (build.progress > 0) {
         bar.fillStyle(build.ultimateActive ? 0xffca28 : build.color, 1)
-          .fillRoundedRect(72, y + 66, Math.max(8, (GAME_WIDTH - 144) * build.progress), 12, 6);
+          .fillRoundedRect(72, y + 56, Math.max(8, (GAME_WIDTH - 144) * build.progress), 10, 5);
       }
       objects.push(name, status, tagline, bar);
     });
 
     const owned = this.game_.skills.getOwnedSkills();
-    const skillsTitle = this.add.text(72, 620, `技能载荷 · ${owned.length}`, {
+    const skillsTitleY = 190 + this.game_.skills.getBuildProgress().length * 80 + 12;
+    const skillsTitle = this.add.text(72, skillsTitleY, `技能载荷 · ${owned.length}`, {
       fontFamily: FONT, fontSize: '21px', fontStyle: 'bold', color: '#ffffff',
     }).setDepth(52);
     objects.push(skillsTitle);
-    owned.slice(0, 12).forEach((entry, index) => {
+    owned.slice(0, 8).forEach((entry, index) => {
       const col = index % 2;
       const row = Math.floor(index / 2);
-      const skillText = this.add.text(72 + col * 292, 660 + row * 32, `${entry.skill.name}  Lv.${entry.level}`, {
+      const skillText = this.add.text(72 + col * 292, skillsTitleY + 38 + row * 30, `${entry.skill.name}  Lv.${entry.level}`, {
         fontFamily: FONT, fontSize: '16px', color: entry.skill.category === 'defense' ? '#81c784' : '#cfd8dc',
       }).setDepth(52);
       objects.push(skillText);
     });
 
     const synergies = this.game_.skills.getActiveSynergies();
-    const synergyTitle = this.add.text(72, 864, `组合技 · ${synergies.length}`, {
+    const synergyTitleY = skillsTitleY + 172;
+    const synergyTitle = this.add.text(72, synergyTitleY, `组合技 · ${synergies.length}`, {
       fontFamily: FONT, fontSize: '21px', fontStyle: 'bold', color: '#ffa726',
     }).setDepth(52);
-    const synergyText = this.add.text(72, 900,
+    const synergyText = this.add.text(72, synergyTitleY + 36,
       synergies.length > 0 ? synergies.slice(-6).map((item) => item.name).join(' · ') : '尚未激活', {
         fontFamily: FONT, fontSize: '16px', color: '#c6a76c',
         wordWrap: { width: GAME_WIDTH - 144 }, lineSpacing: 7,
@@ -256,10 +258,11 @@ export class UIScene extends Phaser.Scene {
     objects.push(synergyTitle, synergyText);
 
     const damage = this.game_.getDamageBreakdown().slice(0, 4);
-    const damageTitle = this.add.text(72, 972, '主要伤害来源', {
+    const damageTitleY = synergyTitleY + 108;
+    const damageTitle = this.add.text(72, damageTitleY, '主要伤害来源', {
       fontFamily: FONT, fontSize: '21px', fontStyle: 'bold', color: '#ffffff',
     }).setDepth(52);
-    const damageText = this.add.text(72, 1008,
+    const damageText = this.add.text(72, damageTitleY + 36,
       damage.length > 0
         ? damage.map((item) => `${item.label} ${Math.round(item.percent * 100)}%`).join('  ·  ')
         : '战斗开始后生成统计', {
@@ -272,10 +275,10 @@ export class UIScene extends Phaser.Scene {
     const perfLabel = performance.enabled
       ? `FPS ${performance.fps} / 低点 ${performance.lowFps} · 敌 ${performance.enemies} · 弹 ${performance.projectiles} · 粒 ${performance.particles}`
       : '性能监测当前关闭';
-    const perfText = this.add.text(72, 1092, perfLabel, {
+    const perfText = this.add.text(72, damageTitleY + 100, perfLabel, {
       fontFamily: 'Consolas, monospace', fontSize: '15px', color: performance.enabled ? '#a7ffeb' : '#78909c',
     }).setDepth(52);
-    const perfButton = createButton(this, GAME_WIDTH - 152, 1122, performance.enabled ? '关闭监测' : '开启监测', () => {
+    const perfButton = createButton(this, GAME_WIDTH - 152, damageTitleY + 128, performance.enabled ? '关闭监测' : '开启监测', () => {
       this.game_.setPerformanceMonitoring(!this.game_.performanceStats.enabled);
       this.closeBuildPanel();
       this.showBuildPanel();

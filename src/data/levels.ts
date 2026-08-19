@@ -20,6 +20,109 @@ interface WaveConfig {
   bossWave?: boolean;
 }
 
+// ── 深渊词缀：中期起的关卡随机携带全局修正，带来局局不同的战场变数 ──
+export type LevelModifierKey =
+  | 'swiftTide'
+  | 'ironHorde'
+  | 'frenzyWave'
+  | 'goldenAge'
+  | 'fragileFront'
+  | 'entrenched'
+  | 'overcharged'
+  | 'armory';
+
+export interface LevelModifierDef {
+  key: LevelModifierKey;
+  name: string;
+  shortLabel: string;
+  desc: string;
+  color: number;
+  colorHex: string;
+  enemyCountMultiplier: number;
+  enemySpeedMultiplier: number;
+  enemyHpMultiplier: number;
+  coinMultiplier: number;
+  wallHpMultiplier: number;
+  cannonDamageMultiplier: number;
+  initialOverdrive: number;
+  eliteBountyMultiplier: number;
+  rerollDiscount: number;
+}
+
+export const LEVEL_MODIFIERS: Record<LevelModifierKey, LevelModifierDef> = {
+  swiftTide: {
+    key: 'swiftTide', name: '急速之潮', shortLabel: '疾潮',
+    desc: '敌军速度 +12%，金币 +25%', color: 0x4fc3f7, colorHex: '#4fc3f7',
+    enemyCountMultiplier: 1, enemySpeedMultiplier: 1.12, enemyHpMultiplier: 1,
+    coinMultiplier: 1.25, wallHpMultiplier: 1, cannonDamageMultiplier: 1,
+    initialOverdrive: 0, eliteBountyMultiplier: 1, rerollDiscount: 0,
+  },
+  ironHorde: {
+    key: 'ironHorde', name: '钢铁尸潮', shortLabel: '钢潮',
+    desc: '敌军生命 +18%，精英赏金 +50%', color: 0x90a4ae, colorHex: '#b0bec5',
+    enemyCountMultiplier: 1, enemySpeedMultiplier: 1, enemyHpMultiplier: 1.18,
+    coinMultiplier: 1, wallHpMultiplier: 1, cannonDamageMultiplier: 1,
+    initialOverdrive: 0, eliteBountyMultiplier: 1.5, rerollDiscount: 0,
+  },
+  frenzyWave: {
+    key: 'frenzyWave', name: '狂热浪潮', shortLabel: '狂潮',
+    desc: '敌军规模 +14%，过载获取 +30%', color: 0xef5350, colorHex: '#ff6e6e',
+    enemyCountMultiplier: 1.14, enemySpeedMultiplier: 1, enemyHpMultiplier: 1,
+    coinMultiplier: 1, wallHpMultiplier: 1, cannonDamageMultiplier: 1,
+    initialOverdrive: 0, eliteBountyMultiplier: 1, rerollDiscount: 0,
+  },
+  goldenAge: {
+    key: 'goldenAge', name: '黄金时代', shortLabel: '黄金',
+    desc: '所有金币收益 +45%', color: 0xffca28, colorHex: '#ffd54f',
+    enemyCountMultiplier: 1.06, enemySpeedMultiplier: 1.04, enemyHpMultiplier: 1.06,
+    coinMultiplier: 1.45, wallHpMultiplier: 1, cannonDamageMultiplier: 1,
+    initialOverdrive: 0, eliteBountyMultiplier: 1, rerollDiscount: 0,
+  },
+  fragileFront: {
+    key: 'fragileFront', name: '脆弱前线', shortLabel: '脆线',
+    desc: '墙体生命 -18%，炮击伤害 +18%', color: 0xff8a65, colorHex: '#ff8a65',
+    enemyCountMultiplier: 1, enemySpeedMultiplier: 1, enemyHpMultiplier: 1,
+    coinMultiplier: 1.15, wallHpMultiplier: 0.82, cannonDamageMultiplier: 1.18,
+    initialOverdrive: 0, eliteBountyMultiplier: 1, rerollDiscount: 0,
+  },
+  entrenched: {
+    key: 'entrenched', name: '固守堡垒', shortLabel: '固守',
+    desc: '墙体生命 +22%，敌军规模 +8%', color: 0x81c784, colorHex: '#81c784',
+    enemyCountMultiplier: 1.08, enemySpeedMultiplier: 1, enemyHpMultiplier: 1,
+    coinMultiplier: 1, wallHpMultiplier: 1.22, cannonDamageMultiplier: 1,
+    initialOverdrive: 0, eliteBountyMultiplier: 1, rerollDiscount: 0,
+  },
+  overcharged: {
+    key: 'overcharged', name: '超载反应', shortLabel: '超载',
+    desc: '初始过载 +40，敌军速度 +6%', color: 0xb388ff, colorHex: '#b388ff',
+    enemyCountMultiplier: 1, enemySpeedMultiplier: 1.06, enemyHpMultiplier: 1,
+    coinMultiplier: 1, wallHpMultiplier: 1, cannonDamageMultiplier: 1,
+    initialOverdrive: 40, eliteBountyMultiplier: 1, rerollDiscount: 0,
+  },
+  armory: {
+    key: 'armory', name: '军械支援', shortLabel: '军械',
+    desc: '重铸花费 -35%，敌军生命 +10%', color: 0xffd180, colorHex: '#ffd180',
+    enemyCountMultiplier: 1, enemySpeedMultiplier: 1, enemyHpMultiplier: 1.1,
+    coinMultiplier: 1.1, wallHpMultiplier: 1, cannonDamageMultiplier: 1,
+    initialOverdrive: 0, eliteBountyMultiplier: 1, rerollDiscount: 0.35,
+  },
+};
+
+const LEVEL_MODIFIER_POOL = Object.keys(LEVEL_MODIFIERS) as LevelModifierKey[];
+
+/** 无词缀关卡使用的中性修正 */
+const NEUTRAL_LEVEL_MODIFIER: LevelModifierDef = {
+  key: 'swiftTide', name: '无词缀', shortLabel: '',
+  desc: '', color: 0x8a9aa8, colorHex: '#8a9aa8',
+  enemyCountMultiplier: 1, enemySpeedMultiplier: 1, enemyHpMultiplier: 1,
+  coinMultiplier: 1, wallHpMultiplier: 1, cannonDamageMultiplier: 1,
+  initialOverdrive: 0, eliteBountyMultiplier: 1, rerollDiscount: 0,
+};
+
+export function getLevelModifier(level: LevelConfig): LevelModifierDef {
+  return level.modifier ? LEVEL_MODIFIERS[level.modifier] : NEUTRAL_LEVEL_MODIFIER;
+}
+
 export interface LevelConfig {
   id: number;
   name: string;
@@ -30,6 +133,8 @@ export interface LevelConfig {
   biome: string;
   /** 是否为 Boss 关 */
   bossLevel: boolean;
+  /** 深渊词缀（中期后的关卡随机携带） */
+  modifier?: LevelModifierKey;
 }
 
 // 快捷构造
@@ -146,12 +251,13 @@ const HANDCRAFTED_LEVELS: LevelConfig[] = [
   },
 ];
 
-export const TOTAL_LEVELS = 50;
+export const TOTAL_LEVELS = 99;
 
-// ── 关卡引擎：程序化生成 11~50 关 ──────────────────────────
-// 难度曲线：每关 hpScale 增长 ~10%，speedScale 缓慢爬升
-// Boss 关卡：5/10/15/20/25/30/35/40/45/50（每 5 关一次）
+// ── 关卡引擎：程序化生成 11~99 关 ──────────────────────────
+// 难度曲线：前期平滑、后期章节血量加速成长，速度则封顶避免失控
+// Boss 关卡：5/10/15/.../95（每 5 关一次）
 // 章节循环：每 10 关一个大循环，biome 重新轮转，难度高于上一轮
+// 深渊词缀：第 21 关起，大部分关卡携带随机全局词缀
 
 // 关卡引擎解锁的僵尸类型池（按等级解锁）
 function pickN<T>(arr: T[], n: number, random: () => number = Math.random): T[] {
@@ -176,23 +282,31 @@ function makeRng(seed: number): () => number {
 }
 
 /**
- * 程序化生成单个关卡（id 11~50）
+ * 程序化生成单个关卡（id 11~99）
  */
 function generateLevel(id: number): LevelConfig {
   const rng = makeRng(id * 2654435761);
   const between = (a: number, b: number) => a + Math.floor(rng() * (b - a + 1));
 
   // 章节与 biomes
-  const chapter = Math.floor((id - 1) / 10); // 0,1,2,3,4
+  const chapter = Math.floor((id - 1) / 10); // 0~9
   const idxInChapter = (id - 1) % 10; // 0~9
   const biome = BIOME_CYCLE[idxInChapter];
   const bossLevel = id % 5 === 0;
 
   // 难度曲线
-  // 章节 0 (1-10) 用手工程，不会走这里；章节 1+ 起步 hpScale 跳跃
-  const chapterBase = chapter === 0 ? 1.0 : 5 + (chapter - 1) * 7; // 第11关起步6
+  // 章节 0 (1-10) 用手工程，不会走这里；章节 1~4 线性成长，章节 5+ 加速（深渊章节）
+  const chapterBase = chapter === 0
+    ? 1.0
+    : 5 + (chapter - 1) * 7 + Math.max(0, chapter - 4) * 6;
   const hpScale = Math.round((chapterBase + idxInChapter * 1.1) * 10) / 10;
-  const speedScale = Math.round((1.3 + chapter * 0.18 + idxInChapter * 0.02) * 100) / 100;
+  // 速度缓慢爬升并封顶，避免后期无法反应
+  const speedScale = Math.round(Math.min(2.35, 1.3 + chapter * 0.14 + idxInChapter * 0.015) * 100) / 100;
+
+  // 深渊词缀：第 21 关起大部分关卡携带
+  const modifier = id >= 21 && rng() < 0.85
+    ? LEVEL_MODIFIER_POOL[Math.floor(rng() * LEVEL_MODIFIER_POOL.length)]
+    : undefined;
 
   // 波次数：每关 5~7 波；Boss 关追加终局波
   const baseWaves = between(5, 7);
@@ -276,6 +390,7 @@ function generateLevel(id: number): LevelConfig {
     waves,
     biome: biome.key,
     bossLevel,
+    modifier,
   };
 }
 

@@ -146,7 +146,7 @@ export class WaveManager {
   }
 
   private generateEndlessWave(wave: number): { groups: SpawnGroup[]; bossWave?: boolean } {
-    const equivalentLevel = Math.min(50, Math.max(1, 4 + wave * 2));
+    const equivalentLevel = Math.min(99, Math.max(1, 4 + wave * 2));
     const unlocked = getUnlockedZombieTypes(equivalentLevel).filter((type) => type !== 'swarm');
     const candidates = [...unlocked];
     const groupCount = Math.min(5, 2 + Math.floor((wave - 1) / 3));

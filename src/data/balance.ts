@@ -70,6 +70,19 @@ export const META_UPGRADES = {
   startingShield: { name: '预充护盾', desc: '每级开局获得 12 点护盾', baseCost: 280, max: 10 },
   overdriveGain: { name: '热能回收', desc: '每级过载获取 +5%', baseCost: 340, max: 10 },
   eliteBounty: { name: '精英悬赏', desc: '每级精英与首领赏金 +8%', baseCost: 360, max: 10 },
+  // ── 二期养成 ──
+  critDamage: { name: '暴伤训练', desc: '每级暴击伤害倍率 +0.12', baseCost: 240, max: 10 },
+  overdriveDuration: { name: '过载延时', desc: '每级过载爆发持续 +0.5 秒', baseCost: 260, max: 8 },
+  combatRepair: { name: '战地抢修', desc: '每级战斗中无敌人时缓慢修复墙体', baseCost: 200, max: 10 },
+  startingFund: { name: '启动资金', desc: '每级每局开局 +40 金币', baseCost: 140, max: 12 },
+  eliteRadar: { name: '精英雷达', desc: '每级精英出现率 +1.5%', baseCost: 260, max: 8 },
+  burnMastery: { name: '引燃精通', desc: '每级灼烧伤害 +12%', baseCost: 220, max: 8 },
+  frostMastery: { name: '寒冰精通', desc: '每级减速持续时间 +8%', baseCost: 220, max: 8 },
+  missilePayload: { name: '导弹载荷', desc: '每级导弹与空中支援伤害 +8%', baseCost: 240, max: 8 },
+  preGameSupply: { name: '战前补给', desc: '每 3 级战前免费技能 +1 项', baseCost: 320, max: 9 },
+  killOverdrive: { name: '击杀充能', desc: '每级每次击杀过载 +0.3', baseCost: 280, max: 10 },
+  wallSpikes: { name: '外墙尖刺', desc: '每级墙体受击反弹 3% 伤害', baseCost: 300, max: 8 },
+  luckyBless: { name: '幸运祝福', desc: '每级技能稀有度运气 +4%', baseCost: 260, max: 8 },
 } as const;
 
 export type MetaUpgradeKey = keyof typeof META_UPGRADES;
