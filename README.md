@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 1.1.1" src="https://img.shields.io/badge/version-1.1.1-f9a825">
+  <img alt="Version 1.2.0" src="https://img.shields.io/badge/version-1.2.0-f9a825">
   <img alt="Phaser 3.85" src="https://img.shields.io/badge/Phaser-3.85-2f855a">
   <img alt="TypeScript 5.6" src="https://img.shields.io/badge/TypeScript-5.6-3178c6">
   <img alt="Android APK" src="https://img.shields.io/badge/Android-APK-3ddc84">
@@ -31,7 +31,7 @@
 
 ## 游戏内容
 
-《僵尸炮台》是一款竖屏塔防射击游戏。鼠标移动或手指拖动负责瞄准，炮台自动开火；每局先免费选择 5 项技能，之后在波次间继续强化、重铸并激活组合技。
+《僵尸炮台》是一款竖屏塔防射击游戏。鼠标移动或手指拖动负责瞄准，战斗内始终显示炮口瞄准虚线，炮台自动开火；每局先免费选择 5 项技能，之后在波次间继续强化、重铸并激活组合技。行为装备按战役进度渐进解锁：弹药槽第 4 关启用、城墙槽第 7 关启用，新机制首次登场时附带局内讲解。
 
 - **高密度尸潮**：18 种基础行为原型扩展为 110 类敌人，包含元素、深渊、梦魇变体与 12 类首领。
 - **真实元素克制**：动能、火焰、寒冰、雷电、爆破、腐蚀、能量、引力统一参与伤害结算；弱点 ×1.55、抗性 ×0.58、免疫 ×0。
@@ -64,7 +64,7 @@
 | [最新体验版](https://github.com/tjujingzong/zombie-cannon/releases/download/android-latest/zombie-cannon-android.apk) | 跟随 `main`，包含最新玩法与修复 | 每次推送 `main` 后由 Actions 覆盖发布 |
 | [v1.1.1 稳定版](https://github.com/tjujingzong/zombie-cannon/releases/download/v1.1.1/zombie-cannon-v1.1.1.apk) | 固定版本，便于回退与复现 | 不再覆盖 |
 
-体验包从 `v1.1.0` 起使用递增的 Android `versionCode`，当前应用版本为 `1.1.1`。仓库配置完整发布签名 Secret 时，`main` 与 `v*` 标签都会使用同一 release keystore，可直接覆盖升级；缺少 Secret 时 CI 会回退到 debug 证书。若 Android 提示签名不一致，请先导出存档，再卸载旧包后安装新包。
+体验包从 `v1.1.0` 起使用递增的 Android `versionCode`，当前应用版本为 `1.2.0`。仓库配置完整发布签名 Secret 时，`main` 与 `v*` 标签都会使用同一 release keystore，可直接覆盖升级；缺少 Secret 时 CI 会回退到 debug 证书。若 Android 提示签名不一致，请先导出存档，再卸载旧包后安装新包。
 
 ## 本地开发
 
@@ -102,7 +102,7 @@ android/app/build/outputs/apk/debug/app-debug.apk
 可通过环境变量覆盖包版本：
 
 ```text
-ANDROID_VERSION_NAME=1.1.1
+ANDROID_VERSION_NAME=1.2.0
 ANDROID_VERSION_CODE=2
 ```
 

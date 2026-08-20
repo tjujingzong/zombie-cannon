@@ -43,6 +43,8 @@ import {
   type RandomSource,
 } from '../systems/SeededRandom';
 import {
+  AMMO_SLOT_UNLOCK_LEVEL,
+  WALL_SLOT_UNLOCK_LEVEL,
   getBehaviorEquipment,
   type BehaviorLoadout,
 } from '../data/equipment';
@@ -154,11 +156,17 @@ export class GameScene extends Phaser.Scene {
   private spawnRandom: RandomSource = Math.random;
   private waveRandom: RandomSource = Math.random;
   private behaviorLoadout!: BehaviorLoadout;
+  private ammoSlotActive = true;
+  private wallSlotActive = true;
   private equipmentVolleyCount = 0;
   private equipmentProjectileCount = 0;
   private cyclerHeat = 0;
   private cyclerLockTimer = 0;
   private wallModuleCooldown = 0;
+  /** 瞄准线（手机端瞄准辅助） */
+  private aimGraphics!: Phaser.GameObjects.Graphics;
+  /** 本局机制提示队列（首次接触时逐条弹出） */
+  private mechanicTipShown = false;
   private companionProtocol!: CompanionProtocolKey;
   private companionCharge = 0;
   private companionDrone?: Phaser.GameObjects.Image;
@@ -251,6 +259,11 @@ export class GameScene extends Phaser.Scene {
     this.level = this.isEndlessMode
       ? ENDLESS_LEVEL
       : getLevel(this.dailyChallenge?.levelId ?? data.levelId ?? 1);
+    const campaignLevel = this.isEndlessMode || this.isDailyMode
+      ? Number.POSITIVE_INFINITY
+      : this.level.id;
+    this.ammoSlotActive = campaignLevel >= AMMO_SLOT_UNLOCK_LEVEL;
+    this.wallSlotActive = campaignLevel >= WALL_SLOT_UNLOCK_LEVEL;
     const seededRun = this.dailyChallenge?.seed ?? this.endlessRun?.seed;
     if (seededRun !== undefined) {
       this.eventRandom = createSeededRandom(deriveSeed(seededRun, 'events'));
@@ -284,6 +297,7 @@ export class GameScene extends Phaser.Scene {
     this.eliteAuraTimer = 0;
     this.supplyContractTimer = 0;
     this.idleRepairAccumulator = 0;
+    this.mechanicTipShown = false;
     this.behaviorTelemetry = {
       volleys: 0,
       cryoBursts: 0,
@@ -503,6 +517,9 @@ export class GameScene extends Phaser.Scene {
     this.cannon = new Cannon(this, this.skills);
     this.cannon.onFire = (x, y, angle) => this.fireBullet(x, y, angle);
     this.cannon.onVolley = (x, y, angle) => this.onEquipmentVolley(x, y, angle);
+    // 瞄准线：虚线指向 + 落点标记，手机上拖拽瞄准更容易判断弹道
+    this.aimGraphics = this.add.graphics().setDepth(10);
+    this.drawAimLine();
     this.createSupportEmplacement();
     this.createCompanion();
 
@@ -1350,6 +1367,7 @@ export class GameScene extends Phaser.Scene {
     if (isBossWave) {
       this.cameras.main.shake(400, 0.012);
     }
+    if (this.waveManager.currentWave === 1) this.scheduleMechanicTips();
     this.activateScheduledBattlefieldEvent();
   }
 
@@ -1754,20 +1772,20 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.equipmentProjectileCount++;
-    if (this.behaviorLoadout.ammo === 'ammo_cryo' && this.equipmentProjectileCount % 5 === 0) {
+    if (this.ammoSlotActive && this.behaviorLoadout.ammo === 'ammo_cryo' && this.equipmentProjectileCount % 5 === 0) {
       profile.cryoBurst = true;
       profile.tint = 0x80deea;
       profile.scale = (profile.scale ?? 1) * 1.16;
-    } else if (this.behaviorLoadout.ammo === 'ammo_shrapnel') {
+    } else if (this.ammoSlotActive && this.behaviorLoadout.ammo === 'ammo_shrapnel') {
       profile.shrapnelOnKill = true;
-    } else if (this.behaviorLoadout.ammo === 'ammo_volatile' && this.equipmentProjectileCount % 6 === 0) {
+    } else if (this.ammoSlotActive && this.behaviorLoadout.ammo === 'ammo_volatile' && this.equipmentProjectileCount % 6 === 0) {
       profile.volatileCore = true;
       profile.tint = 0xff7043;
       profile.scale = (profile.scale ?? 1) * 1.22;
-    } else if (this.behaviorLoadout.ammo === 'ammo_incendiary') {
+    } else if (this.ammoSlotActive && this.behaviorLoadout.ammo === 'ammo_incendiary') {
       profile.element = 'fire';
       profile.tint = 0xff8a65;
-    } else if (this.behaviorLoadout.ammo === 'ammo_arc') {
+    } else if (this.ammoSlotActive && this.behaviorLoadout.ammo === 'ammo_arc') {
       profile.element = 'lightning';
       profile.arcBurst = this.equipmentProjectileCount % 4 === 0;
       profile.tint = 0xffee58;
@@ -1805,6 +1823,98 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.shake(100, 0.004);
   }
 
+  /** 机制提示横幅：新手阶段逐条介绍新机制，避免一次性堆给玩家 */
+  private showMechanicTip(title: string, desc: string, color = 0x69f0ae): void {
+    if (this.finished) return;
+    const band = this.add.rectangle(GAME_WIDTH / 2, 216, GAME_WIDTH - 48, 106, 0x071015, 0.9)
+      .setDepth(21).setAlpha(0);
+    const accent = this.add.rectangle(GAME_WIDTH / 2, 163, GAME_WIDTH - 48, 4, color, 1)
+      .setDepth(22).setAlpha(0);
+    const titleTxt = this.add.text(GAME_WIDTH / 2, 190, title, {
+      fontFamily: FONT, fontSize: '22px', fontStyle: 'bold',
+      color: `#${color.toString(16).padStart(6, '0')}`,
+      stroke: '#071015', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(22).setAlpha(0);
+    const descTxt = this.add.text(GAME_WIDTH / 2, 240, desc, {
+      fontFamily: FONT, fontSize: '17px', color: '#d7e3e8',
+      stroke: '#071015', strokeThickness: 2,
+      wordWrap: { width: GAME_WIDTH - 96 }, align: 'center',
+    }).setOrigin(0.5).setDepth(22).setAlpha(0);
+    const elements: Phaser.GameObjects.GameObject[] = [band, accent, titleTxt, descTxt];
+    this.tweens.add({
+      targets: elements, alpha: 1, duration: 220, yoyo: true, hold: 2500,
+      onComplete: () => elements.forEach((element) => element.destroy()),
+    });
+    AudioSystem.play('wave', { volume: 0.5 });
+  }
+
+  /** 首波开始时按关卡进度安排机制讲解（只讲本局会遇到的机制） */
+  private scheduleMechanicTips(): void {
+    if (this.mechanicTipShown || this.isDailyMode || this.isEndlessMode) return;
+    this.mechanicTipShown = true;
+    if (this.level.id === 1) {
+      this.time.delayedCall(1200, () => this.showMechanicTip(
+        '操作提示',
+        '按住并拖动屏幕瞄准，虚线就是弹道；敌人进场后炮台自动开火',
+        0x4fc3f7,
+      ));
+      if (this.behaviorLoadout.barrel === 'barrel_cycler') {
+        this.time.delayedCall(5400, () => this.showMechanicTip(
+          '涡轮旋管 · 热量',
+          '连续开火会积热并提升射速；热量满时自动排热，向前方喷出一轮扇形弹幕',
+          0xffb74d,
+        ));
+      }
+    } else if (this.level.id === AMMO_SLOT_UNLOCK_LEVEL) {
+      const ammo = getBehaviorEquipment(this.behaviorLoadout.ammo);
+      this.time.delayedCall(1200, () => this.showMechanicTip(
+        '新机制解锁 · 弹药槽',
+        `${ammo?.name ?? '弹药'}：${ammo?.desc ?? ''}`,
+        0x80deea,
+      ));
+    } else if (this.level.id === WALL_SLOT_UNLOCK_LEVEL) {
+      const wall = getBehaviorEquipment(this.behaviorLoadout.wall);
+      this.time.delayedCall(1200, () => this.showMechanicTip(
+        '新机制解锁 · 城墙模块',
+        `${wall?.name ?? '城墙模块'}：${wall?.desc ?? ''}`,
+        0x64b5f6,
+      ));
+    }
+  }
+
+  /** 绘制瞄准线：从炮口沿当前瞄准方向延伸的渐隐虚线，末端带落点标记 */
+  private drawAimLine(): void {
+    this.aimGraphics.clear();
+    if (this.finished || this.choosingUpgrade) return;
+    const angle = this.cannon.currentAimAngle;
+    const dirX = Math.cos(angle);
+    const dirY = Math.sin(angle);
+    if (dirY >= -0.02) return;
+    const muzzle = this.cannon.muzzlePosition(angle);
+    let travel = (86 - muzzle.y) / dirY;
+    if (dirX > 0.001) travel = Math.min(travel, (GAME_WIDTH - 14 - muzzle.x) / dirX);
+    else if (dirX < -0.001) travel = Math.min(travel, (14 - muzzle.x) / dirX);
+    if (travel <= 12) return;
+    const color = this.cyclerLockTimer > 0 ? 0xff8a65 : 0xffe082;
+    const dash = 18;
+    const gap = 13;
+    let traveled = 0;
+    while (traveled < travel) {
+      const segEnd = Math.min(travel, traveled + dash);
+      const alpha = Math.max(0.12, 0.4 * (1 - 0.65 * (traveled / travel)));
+      this.aimGraphics.lineStyle(3, color, alpha)
+        .lineBetween(
+          muzzle.x + dirX * traveled, muzzle.y + dirY * traveled,
+          muzzle.x + dirX * segEnd, muzzle.y + dirY * segEnd,
+        );
+      traveled += dash + gap;
+    }
+    const endX = muzzle.x + dirX * travel;
+    const endY = muzzle.y + dirY * travel;
+    this.aimGraphics.lineStyle(2.5, color, 0.55).strokeCircle(endX, endY, 10);
+    this.aimGraphics.fillStyle(color, 0.5).fillCircle(endX, endY, 2.6);
+  }
+
   private updateBehaviorEquipment(dt: number, hasTargets: boolean): void {
     this.wallModuleCooldown = Math.max(0, this.wallModuleCooldown - dt);
     let barrelStatus: string;
@@ -1834,28 +1944,34 @@ export class GameScene extends Phaser.Scene {
       barrelStatus = `侧翼 ${this.equipmentVolleyCount % 3}/3`;
     }
 
-    const ammoStatus = this.behaviorLoadout.ammo === 'ammo_cryo'
-      ? `冷凝 ${this.equipmentProjectileCount % 5}/5`
-      : this.behaviorLoadout.ammo === 'ammo_volatile'
-        ? `爆芯 ${this.equipmentProjectileCount % 6}/6`
-        : this.behaviorLoadout.ammo === 'ammo_incendiary'
-          ? '火焰灼烧'
-          : this.behaviorLoadout.ammo === 'ammo_arc'
-            ? `电弧 ${this.equipmentProjectileCount % 4}/4`
-            : '击杀裂变';
-    const wallStatus = this.behaviorLoadout.wall === 'wall_salvage'
-      ? '精英回收'
-      : this.wallModuleCooldown > 0
-        ? `${this.behaviorLoadout.wall === 'wall_pulse'
-          ? '电网'
-          : this.behaviorLoadout.wall === 'wall_reflector'
-            ? '反射'
-            : this.behaviorLoadout.wall === 'wall_barrier' ? '壁垒' : '纳米'} ${this.wallModuleCooldown.toFixed(1)}s`
-        : '防线就绪';
+    const ammoStatus = !this.ammoSlotActive
+      ? `第 ${AMMO_SLOT_UNLOCK_LEVEL} 关解锁`
+      : this.behaviorLoadout.ammo === 'ammo_cryo'
+        ? `冷凝 ${this.equipmentProjectileCount % 5}/5`
+        : this.behaviorLoadout.ammo === 'ammo_volatile'
+          ? `爆芯 ${this.equipmentProjectileCount % 6}/6`
+          : this.behaviorLoadout.ammo === 'ammo_incendiary'
+            ? '火焰灼烧'
+            : this.behaviorLoadout.ammo === 'ammo_arc'
+              ? `电弧 ${this.equipmentProjectileCount % 4}/4`
+              : '击杀裂变';
+    const wallStatus = !this.wallSlotActive
+      ? `第 ${WALL_SLOT_UNLOCK_LEVEL} 关解锁`
+      : this.behaviorLoadout.wall === 'wall_salvage'
+        ? '精英回收'
+        : this.wallModuleCooldown > 0
+          ? `${this.behaviorLoadout.wall === 'wall_pulse'
+            ? '电网'
+            : this.behaviorLoadout.wall === 'wall_reflector'
+              ? '反射'
+              : this.behaviorLoadout.wall === 'wall_barrier' ? '壁垒' : '纳米'} ${this.wallModuleCooldown.toFixed(1)}s`
+          : '防线就绪';
     const barrel = getBehaviorEquipment(this.behaviorLoadout.barrel);
     const ammo = getBehaviorEquipment(this.behaviorLoadout.ammo);
     const wall = getBehaviorEquipment(this.behaviorLoadout.wall);
-    this.behaviorEquipmentLabel = `${barrel?.shortName ?? ''} · ${ammo?.shortName ?? ''} · ${wall?.shortName ?? ''}`;
+    const ammoLabel = this.ammoSlotActive ? (ammo?.shortName ?? '') : `弹药·${AMMO_SLOT_UNLOCK_LEVEL}关开`;
+    const wallLabel = this.wallSlotActive ? (wall?.shortName ?? '') : `城墙·${WALL_SLOT_UNLOCK_LEVEL}关开`;
+    this.behaviorEquipmentLabel = `${barrel?.shortName ?? ''} · ${ammoLabel} · ${wallLabel}`;
     this.behaviorEquipmentStatus = `${barrelStatus} · ${ammoStatus} · ${wallStatus}`;
     this.behaviorEquipmentColor = barrel?.color ?? 0xce93d8;
   }
@@ -1957,7 +2073,7 @@ export class GameScene extends Phaser.Scene {
     if (this.skills.burnDps > 0 && zombie.hp > 0) {
       this.applyBurn(zombie, this.skills.burnDps * MetaUpgrades.burnMultiplier());
     }
-    if (this.behaviorLoadout.ammo === 'ammo_incendiary' && zombie.hp > 0) {
+    if (this.ammoSlotActive && this.behaviorLoadout.ammo === 'ammo_incendiary' && zombie.hp > 0) {
       this.applyBurn(zombie, this.skills.damage * 0.18);
     }
     if (this.skills.toxicDps > 0 && zombie.hp > 0) {
@@ -2311,8 +2427,12 @@ export class GameScene extends Phaser.Scene {
     this.overdriveCharge = Math.min(100, this.overdriveCharge + Math.max(0, adjustedAmount));
     this.overdriveReady = this.overdriveCharge >= 100 && !this.skills.isOverdriveActive;
     if (!wasReady && this.overdriveReady) {
-      const banner = this.add.text(GAME_WIDTH / 2, 930, '⚡ 过载就绪', {
-        fontFamily: FONT, fontSize: '30px', fontStyle: 'bold', color: '#66e08a',
+      // 早期战役关卡附带释放按钮指引，降低新玩家理解成本
+      const hint = !this.isEndlessMode && !this.isDailyMode && this.level.id <= WALL_SLOT_UNLOCK_LEVEL
+        ? ' · 点右下「释放」全火力爆发'
+        : '';
+      const banner = this.add.text(GAME_WIDTH / 2, 930, `⚡ 过载就绪${hint}`, {
+        fontFamily: FONT, fontSize: hint ? '24px' : '30px', fontStyle: 'bold', color: '#66e08a',
         stroke: '#102218', strokeThickness: 5,
       }).setOrigin(0.5).setDepth(20);
       this.tweens.add({ targets: banner, y: 890, alpha: 0, duration: 900, onComplete: () => banner.destroy() });
@@ -2561,7 +2681,7 @@ export class GameScene extends Phaser.Scene {
     if (this.wallInvulnTimer > 0) return;
 
     dmg *= this.challengeContractDef.wallDamageMultiplier;
-    if (this.behaviorLoadout.wall === 'wall_barrier') dmg *= 0.88;
+    if (this.wallSlotActive && this.behaviorLoadout.wall === 'wall_barrier') dmg *= 0.88;
     // 玻璃大炮：输出更高但墙体更脆
     dmg *= 1 + this.skills.glassCannonWallPenalty;
     // 防爆闸门：单次受击伤害封顶
@@ -2650,7 +2770,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private triggerBehaviorWallModule(incomingDamage: number): void {
-    if (this.wallModuleCooldown > 0) return;
+    if (!this.wallSlotActive || this.wallModuleCooldown > 0) return;
     if (this.behaviorLoadout.wall === 'wall_barrier') {
       this.wallModuleCooldown = 9;
       this.wallShield = Math.min(this.wallMaxHp * 0.55, this.wallShield + this.wallMaxHp * 0.07);
@@ -2750,7 +2870,7 @@ export class GameScene extends Phaser.Scene {
     // 击杀音效
     AudioSystem.play(isBoss ? 'explosion' : 'kill', { volume: isBoss ? 1 : 0.7 });
 
-    if (this.behaviorLoadout.wall === 'wall_salvage' && (killedElite || isBoss)) {
+    if (this.wallSlotActive && this.behaviorLoadout.wall === 'wall_salvage' && (killedElite || isBoss)) {
       this.applyBehaviorSalvage(isBoss);
     }
 
@@ -3118,7 +3238,10 @@ export class GameScene extends Phaser.Scene {
   private effectiveDelta = 0;
 
   update(_time: number, delta: number): void {
-    if (this.finished || this.choosingUpgrade) return;
+    if (this.finished || this.choosingUpgrade) {
+      this.aimGraphics.clear();
+      return;
+    }
     const dt = delta / 1000;
 
     const alive = this.aliveZombies();
@@ -3133,6 +3256,9 @@ export class GameScene extends Phaser.Scene {
     if (this.waveStartDelay > 0) {
       this.waveStartDelay = Math.max(0, this.waveStartDelay - dt);
       if (this.waveStartDelay === 0) this.beginBattlefieldEventGameplay();
+      // 延迟期内仍可瞄准
+      this.cannon.update(dt, alive);
+      this.drawAimLine();
       return;
     }
 
@@ -3141,6 +3267,7 @@ export class GameScene extends Phaser.Scene {
     this.skills.setEnemyFireRateMultiplier(jammerMultiplier * this.eventFireRateMultiplier);
     this.updateBehaviorEquipment(dt, alive.length > 0);
     this.cannon.update(dt, alive);
+    this.drawAimLine();
     this.waveManager.update(dt, alive.length);
     this.updateBattlefieldEvent(dt);
 

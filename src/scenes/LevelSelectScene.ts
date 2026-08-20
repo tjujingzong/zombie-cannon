@@ -11,8 +11,10 @@ import {
 import { LEVEL_MODIFIERS, LEVELS, LEVEL_ENGINE_INFO, TOTAL_LEVELS, type LevelModifierKey } from '../data/levels';
 import { ARMORY_ITEMS, type ArmoryItemDef } from '../data/shop';
 import {
+  AMMO_SLOT_UNLOCK_LEVEL,
   BEHAVIOR_EQUIPMENT,
   BEHAVIOR_SLOT_LABELS,
+  WALL_SLOT_UNLOCK_LEVEL,
   type BehaviorEquipmentDef,
   type BehaviorEquipmentSlot,
 } from '../data/equipment';
@@ -27,6 +29,20 @@ import {
 import { AudioSystem } from '../systems/AudioSystem';
 import { SaveManager } from '../systems/SaveManager';
 import { createButton, FONT, textStyle, titleStyle } from '../ui/helpers';
+
+/** 每章一条打法提示，展示在章节作战情报面板中 */
+const CHAPTER_TIPS = [
+  '拖动屏幕提前瞄准尸群来路；过载槽攒满后点「释放」，一轮爆发清空全场。',
+  '快速单位开始成群出现：瞄准线预瞄前方，靠冷凝弹的减速拉开输出窗口。',
+  '重甲单位进场：优先补穿透或爆破伤害，别把弹药浪费在硬壳上。',
+  '远程喷吐单位会持续消耗防线：先手点杀它们，必要时收墙硬扛一轮。',
+  '首领二阶段会全面过载：把过载爆发留到半血之后，一口气压死。',
+  '元素尸潮登场，弱点克制收益极高：火、冰、雷按敌群属性切换输出。',
+  '深渊变体带免疫词缀：单一属性构筑会撞墙，准备第二条伤害线。',
+  '梦魇先锋对动能免疫的单位激增：能量与雷电构筑更稳，别只堆物理。',
+  '每一波都是硬仗：防御与城墙修复类技能的优先级高于极限输出。',
+  '王座终局全部威胁同时压境：把最完整的构筑与过载留给最后一波。',
+];
 
 /**
  * 关卡选择 + 局外养成商店（50 关可滚动，按章节分段，Boss 关标记）
@@ -149,32 +165,37 @@ export class LevelSelectScene extends Phaser.Scene {
     const chapterSize = LEVEL_ENGINE_INFO.chapterSize;
     const startId = this.chapterPage * chapterSize + 1;
     const endId = Math.min(startId + chapterSize - 1, TOTAL_LEVELS);
+
+    // 章节标题栏
     const headerG = this.add.graphics();
-    headerG.fillStyle(0x2a3b2c, 0.75).fillRoundedRect(20, 18, GAME_WIDTH - 40, 44, 12);
-    const headerTxt = this.add.text(40, 40, `第 ${this.chapterPage + 1} 章  ·  ${LEVELS[startId - 1]?.name ?? ''}`, {
-      fontFamily: FONT, fontSize: '21px', fontStyle: 'bold', color: '#ffd54a',
+    headerG.fillStyle(0x1c2c22, 0.9).fillRoundedRect(24, 12, GAME_WIDTH - 48, 52, 12);
+    headerG.fillStyle(0xffd54a, 1).fillRoundedRect(24, 12, 6, 52, { tl: 12, bl: 12, tr: 0, br: 0 });
+    const headerTxt = this.add.text(48, 38, `第 ${this.chapterPage + 1} 章  ·  ${LEVELS[startId - 1]?.name ?? ''}`, {
+      fontFamily: FONT, fontSize: '22px', fontStyle: 'bold', color: '#ffd54a',
       stroke: '#000000', strokeThickness: 2,
     }).setOrigin(0, 0.5);
     this.levelsContainer.add([headerG, headerTxt]);
 
+    // 关卡网格（5 × 2，紧贴标题栏下方）
     const cols = 5;
     const cellW = 130;
-    const cellH = 156;
+    const cellH = 162;
     const startX = (GAME_WIDTH - cellW * (cols - 1)) / 2;
     for (let id = startId; id <= endId; id++) {
       const lv = LEVELS.find((l) => l.id === id);
       if (!lv) continue;
       const idx = id - startId;
       this.renderTarget = this.levelsContainer;
-      this.createLevelCell(startX + (idx % cols) * cellW, 134 + Math.floor(idx / cols) * cellH, lv.id, lv.name, lv.bossLevel, lv.modifier);
+      this.createLevelCell(startX + (idx % cols) * cellW, 132 + Math.floor(idx / cols) * cellH, lv.id, lv.name, lv.bossLevel, lv.modifier);
     }
 
-    // 章节情报：填充关卡网格下方空间，给玩家明确的进度和威胁预期
-    const intelY = 500;
+    // 章节情报面板：紧贴网格填满剩余空间，不再留大段空白
+    const intelY = 394;
+    const intelH = 592;
     const intelBg = this.add.graphics();
-    intelBg.fillStyle(0x16242d, 0.96).fillRoundedRect(28, intelY, GAME_WIDTH - 56, 338, 8);
-    intelBg.fillStyle(0x263b32, 1).fillRect(28, intelY, GAME_WIDTH - 56, 48);
-    intelBg.lineStyle(1, 0x4d6659, 0.65).lineBetween(48, intelY + 160, GAME_WIDTH - 48, intelY + 160);
+    intelBg.fillStyle(0x071015, 0.5).fillRoundedRect(32, intelY + 6, GAME_WIDTH - 64, intelH, 12);
+    intelBg.fillStyle(0x16242d, 0.97).fillRoundedRect(28, intelY, GAME_WIDTH - 56, intelH, 12);
+    intelBg.fillStyle(0x263b32, 1).fillRoundedRect(28, intelY, GAME_WIDTH - 56, 52, { tl: 12, tr: 12, bl: 0, br: 0 });
     this.levelsContainer.add(intelBg);
 
     const chapterLevels = LEVELS.slice(startId - 1, endId);
@@ -196,41 +217,88 @@ export class LevelSelectScene extends Phaser.Scene {
       '尸潮王座决战 · 全部威胁同时压境',
     ];
 
-    this.levelsContainer.add(this.add.text(48, intelY + 24, '章节作战情报', {
+    // 标题 + 进度统计
+    this.levelsContainer.add(this.add.text(48, intelY + 26, '章节作战情报', {
       fontFamily: FONT, fontSize: '24px', fontStyle: 'bold', color: '#ffffff',
     }).setOrigin(0, 0.5));
-    this.levelsContainer.add(this.add.text(GAME_WIDTH - 48, intelY + 24, `${cleared}/10 关  ·  ${earnedStars}/30 星`, {
-      fontFamily: FONT, fontSize: '18px', fontStyle: 'bold', color: '#ffd54a',
+    this.levelsContainer.add(this.add.text(GAME_WIDTH - 48, intelY + 26, `已占 ${cleared}/10 关  ·  ${earnedStars}/30 星`, {
+      fontFamily: FONT, fontSize: '17px', fontStyle: 'bold', color: '#ffd54a',
     }).setOrigin(1, 0.5));
 
+    // 星级进度条
     const progress = Phaser.Math.Clamp(earnedStars / 30, 0, 1);
     const progressG = this.add.graphics();
-    progressG.fillStyle(0x0b1116, 0.9).fillRoundedRect(48, intelY + 70, GAME_WIDTH - 96, 14, 7);
-    if (progress > 0) progressG.fillStyle(0x4caf50, 1).fillRoundedRect(50, intelY + 72, (GAME_WIDTH - 100) * progress, 10, 5);
+    progressG.fillStyle(0x0b1116, 0.95).fillRoundedRect(48, intelY + 64, GAME_WIDTH - 96, 16, 8);
+    if (progress > 0) progressG.fillStyle(0x4caf50, 1).fillRoundedRect(50, intelY + 66, Math.max(12, (GAME_WIDTH - 100) * progress), 12, 6);
     this.levelsContainer.add(progressG);
-    this.levelsContainer.add(this.add.text(48, intelY + 112, `章节词缀  ${modifiers[this.chapterPage]}`, {
-      fontFamily: FONT, fontSize: '18px', fontStyle: 'bold', color: '#a9c9b4',
-      wordWrap: { width: GAME_WIDTH - 96 },
-    }));
-    this.levelsContainer.add(this.add.text(48, intelY + 180, '可能遭遇', {
-      fontFamily: FONT, fontSize: '19px', fontStyle: 'bold', color: '#ffd54a',
-    }));
 
+    // 章节词缀
+    const modifierG = this.add.graphics();
+    modifierG.fillStyle(0x101c24, 0.95).fillRoundedRect(48, intelY + 98, GAME_WIDTH - 96, 42, 10);
+    modifierG.fillStyle(0xffd54a, 1).fillRoundedRect(48, intelY + 98, 5, 42, { tl: 10, bl: 10, tr: 0, br: 0 });
+    this.levelsContainer.add(modifierG);
+    this.levelsContainer.add(this.add.text(70, intelY + 119, `章节词缀  ·  ${modifiers[this.chapterPage]}`, {
+      fontFamily: FONT, fontSize: '17px', fontStyle: 'bold', color: '#cfe0d4',
+    }).setOrigin(0, 0.5));
+
+    // 分隔线
+    const dividerG = this.add.graphics();
+    dividerG.lineStyle(1, 0x4d6659, 0.6).lineBetween(48, intelY + 162, GAME_WIDTH - 48, intelY + 162);
+    dividerG.lineStyle(1, 0x4d6659, 0.6).lineBetween(48, intelY + 352, GAME_WIDTH - 48, intelY + 352);
+    this.levelsContainer.add(dividerG);
+
+    this.levelsContainer.add(this.add.text(48, intelY + 188, '可能遭遇', {
+      fontFamily: FONT, fontSize: '19px', fontStyle: 'bold', color: '#ffd54a',
+    }).setOrigin(0, 0.5));
+    this.levelsContainer.add(this.add.text(GAME_WIDTH - 48, intelY + 188, '按威胁排序', {
+      fontFamily: FONT, fontSize: '13px', color: '#78909c',
+    }).setOrigin(1, 0.5));
+
+    const pipG = this.add.graphics();
     threatTypes.forEach((type, i) => {
       const stats = ZOMBIE_TYPES[type];
       const codex = ZOMBIE_CODEX[type];
       if (!stats || !codex) return;
-      const x = 78 + i * 92;
-      this.levelsContainer.add(this.add.image(x, intelY + 242, stats.texture).setScale(Math.min(0.68, stats.scale * 0.58)));
-      this.levelsContainer.add(this.add.text(x, intelY + 294, codex.role.replace('者', ''), {
+      const x = 76 + i * 94;
+      this.levelsContainer.add(this.add.image(x, intelY + 252, stats.texture).setScale(Math.min(0.8, stats.scale * 0.7)));
+      this.levelsContainer.add(this.add.text(x, intelY + 308, codex.role.replace('者', ''), {
         fontFamily: FONT, fontSize: '13px', color: '#b0bec5', align: 'center',
       }).setOrigin(0.5));
+      const threat = codex.threat ?? 1;
+      const pipColor = threat >= 5 ? 0xff5252 : threat === 4 ? 0xffb74d : threat === 3 ? 0xfff176 : 0x81c784;
+      const rowWidth = (threat - 1) * 9;
+      pipG.fillStyle(pipColor, 0.9);
+      for (let pip = 0; pip < threat; pip++) {
+        pipG.fillCircle(x - rowWidth / 2 + pip * 9, intelY + 330, 3.2);
+      }
     });
-    this.levelsContainer.add(this.add.text(48, intelY + 320, '章节奖励：首次通关金币、星级记录与下一关解锁', {
-      fontFamily: FONT, fontSize: '16px', color: '#78909c',
+    this.levelsContainer.add(pipG);
+
+    // 本章提示
+    this.levelsContainer.add(this.add.text(48, intelY + 378, '本章提示', {
+      fontFamily: FONT, fontSize: '19px', fontStyle: 'bold', color: '#ffd54a',
+    }).setOrigin(0, 0.5));
+    this.levelsContainer.add(this.add.text(48, intelY + 404, CHAPTER_TIPS[this.chapterPage] ?? '', {
+      fontFamily: FONT, fontSize: '17px', color: '#b4c0c8',
+      wordWrap: { width: GAME_WIDTH - 96 }, lineSpacing: 4,
+    }));
+
+    // 章节奖励
+    const rewardG = this.add.graphics();
+    rewardG.fillStyle(0x0d1a15, 1).fillRoundedRect(48, intelY + 470, GAME_WIDTH - 96, 90, 10);
+    rewardG.lineStyle(1, 0x2f4f3f, 0.9).strokeRoundedRect(48, intelY + 470, GAME_WIDTH - 96, 90, 10);
+    this.levelsContainer.add(rewardG);
+    this.levelsContainer.add(this.add.text(72, intelY + 494, '章节奖励', {
+      fontFamily: FONT, fontSize: '17px', fontStyle: 'bold', color: '#81c784',
+    }).setOrigin(0, 0.5));
+    this.levelsContainer.add(this.add.text(72, intelY + 522, '首次通关金币 · 星级记录 · 解锁下一关', {
+      fontFamily: FONT, fontSize: '15px', color: '#9fb8ad',
+    }).setOrigin(0, 0.5));
+    this.levelsContainer.add(this.add.text(72, intelY + 546, '占满全部 10 关即可推进到下一章', {
+      fontFamily: FONT, fontSize: '13px', color: '#78909c',
     }).setOrigin(0, 0.5));
 
-    this.levelContentHeight = 188 + intelY + 356;
+    this.levelContentHeight = 188 + intelY + intelH + 8;
     if (this.activeTab === 'levels') this.contentHeight = this.levelContentHeight;
     this.pageLabel.setText(`章节 ${this.chapterPage + 1} / ${Math.ceil(TOTAL_LEVELS / chapterSize)}  ·  ${startId}-${endId} 关`);
     this.setScroll(0);
@@ -320,9 +388,15 @@ export class LevelSelectScene extends Phaser.Scene {
       '三槽同时生效 · 5 × 5 × 5 = 125 种战斗组合 · 6 套伙伴协议',
       textStyle(16, '#9ba8b2'),
     ).setOrigin(0.5));
+    this.moduleContainer.add(this.add.text(
+      GAME_WIDTH / 2,
+      92,
+      `战役渐进解锁：弹药槽第 ${AMMO_SLOT_UNLOCK_LEVEL} 关启用 · 城墙槽第 ${WALL_SLOT_UNLOCK_LEVEL} 关启用 · 每日与无尽全开`,
+      textStyle(14, '#78909c'),
+    ).setOrigin(0.5));
 
     const slots: BehaviorEquipmentSlot[] = ['barrel', 'ammo', 'wall'];
-    let cursorY = 106;
+    let cursorY = 132;
     slots.forEach((slot) => {
       const items = BEHAVIOR_EQUIPMENT.filter((item) => item.slot === slot);
       const headerY = cursorY;

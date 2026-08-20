@@ -30,6 +30,12 @@ export interface BehaviorEquipmentDef {
 
 export type BehaviorLoadout = Record<BehaviorEquipmentSlot, BehaviorEquipmentKey>;
 
+// 机制渐进解锁：战役前期只保留「炮管积热 + 过载」两条基础机制，
+// 弹药槽与城墙槽随关卡推进加入，避免新手局一上来被四套机制淹没。
+// 每日挑战与末日无尽视为进阶模式，始终启用全部槽位。
+export const AMMO_SLOT_UNLOCK_LEVEL = 4;
+export const WALL_SLOT_UNLOCK_LEVEL = 7;
+
 export const BEHAVIOR_SLOT_LABELS: Record<BehaviorEquipmentSlot, string> = {
   barrel: '炮管槽',
   ammo: '弹药槽',

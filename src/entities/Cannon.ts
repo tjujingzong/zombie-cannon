@@ -31,6 +31,20 @@ export class Cannon extends Phaser.GameObjects.Container {
     scene.add.existing(this);
   }
 
+  /** 当前瞄准方向（供瞄准线等外部渲染使用） */
+  get currentAimAngle(): number {
+    return this.aimAngle;
+  }
+
+  /** 炮口位置（沿瞄准方向） */
+  muzzlePosition(angle: number = this.aimAngle): { x: number; y: number } {
+    const muzzleLen = this.barrel.displayHeight * 0.78;
+    return {
+      x: this.x + Math.cos(angle) * muzzleLen,
+      y: this.y + Math.sin(angle) * muzzleLen,
+    };
+  }
+
   setManualAim(worldX: number, worldY: number): void {
     if (worldY > this.y - 30) worldY = this.y - 30;
     this.aimAngle = Phaser.Math.Angle.Between(this.x, this.y, worldX, worldY);
