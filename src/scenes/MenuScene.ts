@@ -3,6 +3,7 @@ import { GAME_HEIGHT, GAME_WIDTH } from '../data/balance';
 import { AudioSystem } from '../systems/AudioSystem';
 import { SaveManager } from '../systems/SaveManager';
 import { createButton, FONT, textStyle, titleStyle } from '../ui/helpers';
+import { showTextPrompt } from '../ui/textPrompt';
 import { getDailyChallenge } from '../data/daily';
 
 export class MenuScene extends Phaser.Scene {
@@ -202,15 +203,30 @@ export class MenuScene extends Phaser.Scene {
     if (copied) {
       copied.then(
         () => this.showSaveFeedback('存档已复制到剪贴板', '#8fbf8f'),
-        () => { window.prompt('复制下面的存档文本', payload); },
+        () => this.showExportPrompt(payload),
       );
     } else {
-      window.prompt('复制下面的存档文本', payload);
+      this.showExportPrompt(payload);
     }
   }
 
-  private importSave(): void {
-    const raw = window.prompt('粘贴存档文本');
+  private showExportPrompt(payload: string): void {
+    void showTextPrompt({
+      title: '复制下面的存档文本',
+      confirmLabel: '完成',
+      cancelLabel: '关闭',
+      initial: payload,
+      readOnly: true,
+    });
+    this.showSaveFeedback('已弹出存档文本，请手动复制', '#8fbf8f');
+  }
+
+  private async importSave(): Promise<void> {
+    const raw = await showTextPrompt({
+      title: '粘贴存档文本',
+      confirmLabel: '确认导入',
+      placeholder: '在此粘贴导出的存档 JSON',
+    });
     if (!raw) return;
     if (!SaveManager.importSave(raw)) {
       this.showSaveFeedback('存档无效，当前进度未改变', '#ff8a80');

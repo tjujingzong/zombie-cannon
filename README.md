@@ -6,6 +6,7 @@
 
 <p align="center">
   <a href="https://tjujingzong.github.io/zombie-cannon/">在线游玩</a> ·
+  <a href="https://www.bilibili.com/video/BV1t98T65EB4/">演示视频</a> ·
   <a href="https://github.com/tjujingzong/zombie-cannon/releases/download/android-latest/zombie-cannon-android.apk">Android 最新体验版</a> ·
   <a href="https://github.com/tjujingzong/zombie-cannon/releases/download/v1.1.1/zombie-cannon-v1.1.1.apk">Android v1.1.1 稳定版</a> ·
   <a href="https://github.com/tjujingzong/zombie-cannon/releases">全部 Releases</a>

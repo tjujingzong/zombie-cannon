@@ -67,6 +67,9 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
   private adaptiveResist: Partial<Record<DamageElement, number>> = {};
   /** 弱点标记剩余时间 */
   private markTimer = 0;
+  /** 受击闪白计时：节流避免高频攻击下全程常白 */
+  private flashEvent?: Phaser.Time.TimerEvent;
+  private lastFlashAt = -1000;
 
   private hpBar!: Phaser.GameObjects.Graphics;
   private shieldBar!: Phaser.GameObjects.Graphics;
@@ -400,9 +403,15 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
   }
 
   private flashHit(): void {
+    const now = this.scene.time.now;
+    // 高频命中时节流闪白：冷却期内的攻击不再刷新，保证原色可见、能分辨单位
+    if (now - this.lastFlashAt < 160) return;
+    this.lastFlashAt = now;
     this.setTintFill(0xffffff);
-    this.scene.time.delayedCall(60, () => {
-      if (this.active) {
+    this.flashEvent?.remove();
+    this.flashEvent = this.scene.time.delayedCall(55, () => {
+      this.flashEvent = undefined;
+      if (this.active && !this.dying) {
         this.restoreVisualTint();
       }
     });
@@ -435,6 +444,9 @@ export class Zombie extends Phaser.Physics.Arcade.Sprite {
     this.hasteTimer = 0;
     this.adaptiveResist = {};
     this.markTimer = 0;
+    this.flashEvent?.remove();
+    this.flashEvent = undefined;
+    this.lastFlashAt = -1000;
     this.usesGeneratedArt = false;
     this.visualScale = 1;
     this.hudScale = 1;
